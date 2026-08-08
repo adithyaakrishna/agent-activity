@@ -65,7 +65,7 @@ jobs:
             printf '## Download\n\n'
             printf 'Download the signed and notarized universal `AgentActivity-%s-macos-universal.dmg`, then drag **AgentActivity** to **Applications**.\n\n' "$release_version"
             printf 'Verify it with `AgentActivity-%s-macos-universal.dmg.sha256`. The universal ZIP and `AgentActivity-%s-macos-universal.zip.sha256` are provided for direct deployment.\n\n' "$release_version" "$release_version"
-            printf 'The human-readable `AgentActivity-%s-build-provenance.txt` records the source commit, workflow run, artifact names, and SHA-256 values. It is build metadata, not a cryptographic GitHub artifact attestation.\n\n' "$release_version"
+            printf 'When this release was produced by the GitHub Actions fallback, the human-readable `AgentActivity-%s-build-provenance.txt` is also included with the source commit, workflow run, artifact names, and SHA-256 values. It is build metadata, not a cryptographic GitHub artifact attestation.\n\n' "$release_version"
             cat "$generated_file"
           } > "$notes_file"
 
