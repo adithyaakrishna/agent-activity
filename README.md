@@ -112,6 +112,30 @@ Useful local modes:
 
 The build script stages `dist/AgentActivity.app`. SwiftPM remains the source of truth.
 
+## Website
+
+The Astro marketing site lives in `website/` and follows the same minimal,
+product-first structure as Zonely: a concise introduction, an authentic app
+preview, download and repository actions, and accessible license and privacy
+drawers.
+
+```bash
+cd website
+npm install
+npm run dev
+```
+
+Build the static deployment output with:
+
+```bash
+cd website
+npm run build
+```
+
+The production files are written to `website/site-dist/`. Set `SITE_URL` during
+the build when deploying on a custom domain; otherwise the canonical URL defaults
+to `https://agent-activity.vercel.app`.
+
 ## Architecture
 
 - `Sources/AgentActivity/App` owns the `NSStatusItem`, fixed-size `NSPopover`, and menu-bar lifecycle.
@@ -139,7 +163,9 @@ VERSION=0.0.0-ci BUILD_NUMBER=1 ./script/build_distribution.sh
 VERSION=0.0.0-ci ./script/verify_distribution.sh
 ```
 
-CI runs these checks for pull requests, pushes to `main`, and manual dispatches. Its four unsigned DMG, ZIP, and checksum files are retained for seven days.
+CI runs these checks and builds the Astro website for pull requests, pushes to
+`main`, and manual dispatches. Its four unsigned DMG, ZIP, and checksum files are
+retained for seven days.
 
 ## Release
 

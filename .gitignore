@@ -1,6 +1,9 @@
 # Swift and distribution output
 .build/
 dist/
+website/node_modules/
+website/.astro/
+website/site-dist/
 
 # Local release configuration and credentials
 .env
