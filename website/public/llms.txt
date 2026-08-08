@@ -1,0 +1,16 @@
+# AgentActivity
+
+AgentActivity is a private native macOS menu-bar application that turns Cursor,
+Codex, Claude, and GitHub activity into a year-long calendar heatmap.
+
+The application runs locally without accounts, advertising, analytics, or
+telemetry upload. Cursor and Claude hooks retain privacy-minimized event metadata
+without prompts, responses, commands, source code, credentials, or tool content.
+GitHub activity is requested through the user's authenticated GitHub CLI session;
+AgentActivity never reads or stores the GitHub token.
+
+Requirements: macOS 13 Ventura or later. Release downloads are universal for
+Apple silicon and Intel Macs and are hosted in the private GitHub repository.
+
+Repository: https://github.com/adithyaakrishna/agent-activity
+Releases: https://github.com/adithyaakrishna/agent-activity/releases/latest

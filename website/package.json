@@ -1,0 +1,26 @@
+{
+  "name": "agent-activity-website",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "author": {
+    "name": "Adithya Krishna",
+    "url": "https://github.com/adithyaakrishna"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/adithyaakrishna/agent-activity"
+  },
+  "bugs": {
+    "url": "https://github.com/adithyaakrishna/agent-activity/issues"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "^3.7.3",
+    "astro": "^7.2.0"
+  }
+}

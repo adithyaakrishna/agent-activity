@@ -1,0 +1,341 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const description =
+  "A private native macOS menu-bar heatmap for Cursor, Codex, Claude, and GitHub activity.";
+const githubUrl = "https://github.com/adithyaakrishna/agent-activity";
+---
+
+<BaseLayout
+  title="AgentActivity — Coding Agent Activity Heatmap for macOS"
+  description={description}
+>
+  <main class="page-shell">
+    <section class="intro" aria-labelledby="page-title">
+      <div class="intro__copy">
+        <div class="intro__title">
+          <h1 id="page-title"><span aria-hidden="true">/</span>agentactivity</h1>
+          <img
+            class="intro__icon"
+            src="/app-icon.png"
+            width="96"
+            height="96"
+            alt=""
+            aria-hidden="true"
+          />
+        </div>
+        <p>{description}</p>
+      </div>
+    </section>
+
+    <figure class="preview" aria-labelledby="preview-caption">
+      <div class="preview__frame">
+        <img
+          src="/agentactivity-preview.png"
+          width="1120"
+          height="596"
+          alt="AgentActivity menu-bar popover with Codex selected and a yearly green activity heatmap"
+        />
+      </div>
+      <figcaption id="preview-caption" class="visually-hidden">
+        AgentActivity compares Cursor, Codex, Claude, GitHub, and other activity
+        in a native menu-bar calendar.
+      </figcaption>
+    </figure>
+
+    <nav class="actions" aria-label="Get AgentActivity">
+      <a
+        class="button button--primary"
+        href={`${githubUrl}/releases/latest`}
+        aria-label="Download AgentActivity for macOS from the private GitHub releases page"
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <path
+            d="M10 2.75v9.5m0 0 3.5-3.5m-3.5 3.5-3.5-3.5M4 14.75v1.5c0 .55.45 1 1 1h10c.55 0 1-.45 1-1v-1.5"
+          ></path>
+        </svg>
+        <span>Download for macOS</span>
+      </a>
+
+      <a
+        class="button button--secondary"
+        href={githubUrl}
+        target="_blank"
+        rel="noreferrer"
+        aria-label="View AgentActivity on GitHub (opens in a new tab)"
+      >
+        <svg class="github-mark" viewBox="0 0 16 16" aria-hidden="true">
+          <path
+            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+          ></path>
+        </svg>
+        <span>View on GitHub</span>
+      </a>
+    </nav>
+
+    <footer class="site-footer">
+      <span class="site-footer__made">
+        <span class="visually-hidden">Made with love in blr.</span>
+        <span aria-hidden="true">Made with</span>
+        <svg class="site-footer__heart" viewBox="0 0 16 16" aria-hidden="true">
+          <path
+            d="M8 13.2 2.7 8.08A3.28 3.28 0 0 1 7.34 3.44L8 4.1l.66-.66a3.28 3.28 0 0 1 4.64 4.64L8 13.2Z"
+          ></path>
+        </svg>
+        <span aria-hidden="true">in blr.</span>
+      </span>
+
+      <nav class="site-footer__legal" aria-label="Product information">
+        <a href="#license">License</a>
+        <span class="site-footer__dot" aria-hidden="true"></span>
+        <a href="#privacy">Privacy</a>
+      </nav>
+    </footer>
+  </main>
+
+  <div class="drawer" data-drawer hidden>
+    <button
+      class="drawer__backdrop"
+      type="button"
+      data-drawer-close
+      tabindex="-1"
+      aria-label="Close"
+    ></button>
+
+    <div
+      class="drawer__panel"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      data-drawer-panel
+    >
+      <div class="drawer__chrome">
+        <div class="drawer__handle" aria-hidden="true"></div>
+        <button
+          class="drawer__close"
+          type="button"
+          data-drawer-close
+          aria-label="Close"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4 4l8 8M12 4l-8 8"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="drawer__body" data-drawer-body>
+        <article class="legal" data-drawer-view="privacy" hidden>
+          <h2 id="drawer-title-privacy">Privacy</h2>
+          <p class="legal__meta">Last updated: August 9, 2026</p>
+
+          <p>
+            AgentActivity has no accounts, advertising, analytics, or telemetry
+            upload. Activity processing happens on your Mac.
+          </p>
+
+          <p>
+            Cursor and Claude hooks keep privacy-minimized event metadata. They
+            exclude prompts, responses, commands, source code, credentials, tool
+            inputs, and tool results. Historical imports read local provider
+            records only for the activity fields needed by the heatmap.
+          </p>
+
+          <p>
+            GitHub activity is requested through your authenticated GitHub CLI
+            session. AgentActivity never reads or stores the GitHub token.
+          </p>
+
+          <p>
+            Local Git inspection is limited to repository paths supplied by a
+            provider or folders you explicitly select. AgentActivity does not
+            crawl broad Desktop, Documents, or home-directory locations.
+          </p>
+
+          <p>
+            Hook records live under <code>~/Library/Application Support/AgentActivity</code>{" "}
+            with owner-only permissions and bounded rotation. Repository-folder
+            choices are stored in macOS preferences.
+          </p>
+        </article>
+
+        <article class="legal" data-drawer-view="license" hidden>
+          <h2 id="drawer-title-license">License</h2>
+          <p class="legal__meta">All rights reserved</p>
+
+          <p>
+            AgentActivity is private proprietary software. No public open-source
+            license is granted.
+          </p>
+
+          <p>
+            Access to the source code or a release does not grant permission to
+            copy, modify, publish, distribute, sublicense, or sell AgentActivity.
+            For licensing questions, email
+            <a href="mailto:aadithya794@gmail.com?subject=%5BAgentActivity%20license%5D"
+              >aadithya794@gmail.com</a
+            >.
+          </p>
+        </article>
+      </div>
+    </div>
+  </div>
+</BaseLayout>
+
+<script>
+  const drawer = document.querySelector<HTMLElement>("[data-drawer]");
+  const panel = document.querySelector<HTMLElement>("[data-drawer-panel]");
+  const views = document.querySelectorAll<HTMLElement>("[data-drawer-view]");
+  const closers = document.querySelectorAll<HTMLElement>("[data-drawer-close]");
+  const drawerHashes = new Set(["license", "privacy"]);
+
+  if (drawer && panel) {
+    let lastFocus: HTMLElement | null = null;
+    let activeView: string | null = null;
+    let syncingHash = false;
+    let openFrame: number | null = null;
+
+    const hashView = () => {
+      const hash = window.location.hash.replace(/^#/, "");
+      return drawerHashes.has(hash) ? hash : null;
+    };
+
+    const setHash = (name: string | null) => {
+      syncingHash = true;
+      if (name) {
+        if (window.location.hash !== `#${name}`) {
+          history.pushState(null, "", `#${name}`);
+        }
+      } else if (window.location.hash) {
+        history.pushState(null, "", window.location.pathname + window.location.search);
+      }
+      syncingHash = false;
+    };
+
+    const getFocusable = () =>
+      Array.from(
+        panel.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => !element.hasAttribute("hidden") && element.offsetParent !== null);
+
+    const setView = (name: string) => {
+      views.forEach((view) => {
+        view.hidden = view.dataset.drawerView !== name;
+      });
+
+      const title = document.getElementById(`drawer-title-${name}`);
+      if (title) panel.setAttribute("aria-labelledby", title.id);
+      activeView = name;
+    };
+
+    const openDrawer = (name: string, { updateHash = true } = {}) => {
+      if (drawer.dataset.open === "true" && activeView === name) {
+        if (updateHash) setHash(name);
+        return;
+      }
+
+      lastFocus = document.activeElement as HTMLElement | null;
+      setView(name);
+      drawer.hidden = false;
+      if (updateHash) setHash(name);
+
+      const body = drawer.querySelector<HTMLElement>("[data-drawer-body]");
+      if (body) body.scrollTop = 0;
+
+      if (openFrame !== null) cancelAnimationFrame(openFrame);
+      openFrame = requestAnimationFrame(() => {
+        openFrame = null;
+        if (drawer.hidden) return;
+        drawer.dataset.open = "true";
+        document.body.dataset.drawerOpen = "true";
+        panel.focus();
+      });
+    };
+
+    const closeDrawer = ({ updateHash = true } = {}) => {
+      if (drawer.hidden) return;
+
+      if (openFrame !== null) {
+        cancelAnimationFrame(openFrame);
+        openFrame = null;
+      }
+
+      drawer.dataset.open = "false";
+      document.body.removeAttribute("data-drawer-open");
+      activeView = null;
+      if (updateHash) setHash(null);
+
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        drawer.hidden = true;
+        views.forEach((view) => {
+          view.hidden = true;
+        });
+        lastFocus?.focus();
+        lastFocus = null;
+      };
+
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        finish();
+        return;
+      }
+
+      const onTransitionEnd = (event: TransitionEvent) => {
+        if (event.target !== panel || event.propertyName !== "transform") return;
+        panel.removeEventListener("transitionend", onTransitionEnd);
+        finish();
+      };
+
+      panel.addEventListener("transitionend", onTransitionEnd);
+      window.setTimeout(finish, 320);
+    };
+
+    const syncFromHash = () => {
+      if (syncingHash) return;
+      const view = hashView();
+      if (view) openDrawer(view, { updateHash: false });
+      else closeDrawer({ updateHash: false });
+    };
+
+    closers.forEach((element) => {
+      element.addEventListener("click", () => closeDrawer());
+    });
+
+    window.addEventListener("hashchange", syncFromHash);
+    window.addEventListener("popstate", syncFromHash);
+    syncFromHash();
+
+    document.addEventListener("keydown", (event) => {
+      if (drawer.hidden) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDrawer();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const focusable = getFocusable();
+      if (focusable.length === 0) {
+        event.preventDefault();
+        panel.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+
+      if (event.shiftKey && (active === first || active === panel)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
+  }
+</script>
