@@ -138,16 +138,20 @@ final class HookConfigurationManagerTests: XCTestCase {
         let helper = try fixtureHelper()
         defer { try? FileManager.default.removeItem(at: helper) }
         let cursorLegacy = "/Applications/AgentActivity/script/agent_activity_hook.sh cursor"
-        let claudeLegacy = "'/Users/Example/Agent Activity/script/agent_activity_hook.sh' claude"
+        let claudeLegacy = "'/Users/Example/Work Space/AgentActivity/script/agent_activity_hook.sh' claude"
+        let cursorLookalike = "/tmp/agent_activity_hook.sh cursor"
+        let claudeLookalike = "'/tmp/agent_activity_hook.sh' claude"
         let cursorNearMatches = [
+            cursorLookalike,
             "/Applications/AgentActivity/script/agent_activity_hook.sh cursor --verbose",
             "/Applications/AgentActivity/script/not_agent_activity_hook.sh cursor",
             "/bin/echo /Applications/AgentActivity/script/agent_activity_hook.sh cursor",
         ]
         let claudeNearMatches = [
-            "'/Users/Example/Agent Activity/script/agent_activity_hook.sh' claude --verbose",
-            "'/Users/Example/Agent Activity/script/not_agent_activity_hook.sh' claude",
-            "/bin/echo '/Users/Example/Agent Activity/script/agent_activity_hook.sh' claude",
+            claudeLookalike,
+            "'/Users/Example/Work Space/AgentActivity/script/agent_activity_hook.sh' claude --verbose",
+            "'/Users/Example/Work Space/AgentActivity/script/not_agent_activity_hook.sh' claude",
+            "/bin/echo '/Users/Example/Work Space/AgentActivity/script/agent_activity_hook.sh' claude",
         ]
         try writeJSONObject([
             "version": 1,
@@ -166,6 +170,8 @@ final class HookConfigurationManagerTests: XCTestCase {
         var claude = try readJSONObject(home.appendingPathComponent(".claude/settings.json"))
         XCTAssertFalse(cursorCommands(in: cursor).contains(cursorLegacy))
         XCTAssertFalse(claudeCommands(in: claude).contains(claudeLegacy))
+        XCTAssertTrue(cursorCommands(in: cursor).contains(cursorLookalike))
+        XCTAssertTrue(claudeCommands(in: claude).contains(claudeLookalike))
         XCTAssertEqual(cursorNearMatches.filter { cursorCommands(in: cursor).contains($0) }.count, cursorNearMatches.count)
         XCTAssertEqual(claudeNearMatches.filter { claudeCommands(in: claude).contains($0) }.count, claudeNearMatches.count)
 
@@ -187,6 +193,8 @@ final class HookConfigurationManagerTests: XCTestCase {
         claude = try readJSONObject(home.appendingPathComponent(".claude/settings.json"))
         XCTAssertFalse(cursorCommands(in: cursor).contains(cursorLegacy))
         XCTAssertFalse(claudeCommands(in: claude).contains(claudeLegacy))
+        XCTAssertTrue(cursorCommands(in: cursor).contains(cursorLookalike))
+        XCTAssertTrue(claudeCommands(in: claude).contains(claudeLookalike))
         XCTAssertEqual(cursorNearMatches.filter { cursorCommands(in: cursor).contains($0) }.count, cursorNearMatches.count)
         XCTAssertEqual(claudeNearMatches.filter { claudeCommands(in: claude).contains($0) }.count, claudeNearMatches.count)
         XCTAssertFalse(cursorCommands(in: cursor).contains(expectedCommand(home: home, provider: "cursor")))

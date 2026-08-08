@@ -319,7 +319,9 @@ private extension HookConfigurationManager {
         guard let words = shellWords(command) else { return false }
         if words == [helperURL.path, "capture", provider] { return true }
         guard words.count == 2, words[1] == provider else { return false }
-        return URL(fileURLWithPath: words[0]).lastPathComponent == "agent_activity_hook.sh"
+        if words[0] == "agent_activity_hook.sh" { return true }
+        let normalizedLegacyPath = URL(fileURLWithPath: words[0]).standardizedFileURL.path
+        return normalizedLegacyPath.hasSuffix("/AgentActivity/script/agent_activity_hook.sh")
     }
 
     func shellWords(_ command: String) -> [String]? {
