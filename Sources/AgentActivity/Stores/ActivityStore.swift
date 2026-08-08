@@ -46,7 +46,6 @@ final class ActivityStore: ObservableObject {
     cancelRefresh()
     selectedSource = source
     refreshError = nil
-    replayID = UUID()
     if let cached = cachedResults[source] {
       dataset = cached.dataset
       summary = cached.summary

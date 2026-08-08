@@ -126,6 +126,32 @@ final class ActivityDataFactoryTests: XCTestCase {
   }
 
   @MainActor
+  func testSelectingSourceDoesNotReplayHeatmapWhileNewSourceLoads() async {
+    let loader = ControlledSourceLoader()
+    let store = ActivityStore(
+      selectedSource: .codex,
+      loadsLiveData: false,
+      sourceLoader: loader.load
+    )
+    let originalReplayID = store.replayID
+
+    store.select(.cursor)
+    await waitUntil { loader.requestedSources == [.cursor] }
+
+    XCTAssertEqual(store.selectedSource, .cursor)
+    XCTAssertEqual(store.loadState, .loading)
+    assertEmpty(store)
+    XCTAssertEqual(
+      store.replayID,
+      originalReplayID,
+      "Normal source selection must not replay the heatmap"
+    )
+
+    loader.resolve(request: 0, with: .failure(CancellationError()))
+    await waitUntil { loader.completedRequests == [0] }
+  }
+
+  @MainActor
   func testNativePopoverRendersAtItsExactSize() throws {
     let content = ActivityPopoverView(
       store: ActivityStore(loadsLiveData: false),
