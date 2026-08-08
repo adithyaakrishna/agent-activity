@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag to update, for example v1.0.0
+        description: Existing stable release tag to update, for example v1.0.0
         required: true
         type: string
 
@@ -35,8 +35,8 @@ jobs:
     steps:
       - name: Validate release tag
         run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$ ]]; then
-            echo "Invalid semantic release tag: $RELEASE_TAG" >&2
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid stable release tag: $RELEASE_TAG (expected vX.Y.Z)" >&2
             exit 2
           fi
 
@@ -65,13 +65,16 @@ jobs:
             printf '## Download\n\n'
             printf 'Download the signed and notarized universal `AgentActivity-%s-macos-universal.dmg`, then drag **AgentActivity** to **Applications**.\n\n' "$release_version"
             printf 'Verify it with `AgentActivity-%s-macos-universal.dmg.sha256`. The universal ZIP and `AgentActivity-%s-macos-universal.zip.sha256` are provided for direct deployment.\n\n' "$release_version" "$release_version"
+            printf 'The human-readable `AgentActivity-%s-build-provenance.txt` records the source commit, workflow run, artifact names, and SHA-256 values. It is build metadata, not a cryptographic GitHub artifact attestation.\n\n' "$release_version"
             cat "$generated_file"
           } > "$notes_file"
 
           gh release edit "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --title "AgentActivity $RELEASE_TAG" \
-            --notes-file "$notes_file"
+            --notes-file "$notes_file" \
+            --prerelease=false \
+            --verify-tag
 
       - name: Show updated release
         run: |

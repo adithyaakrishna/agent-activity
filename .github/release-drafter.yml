@@ -135,6 +135,8 @@ template: |
 
   Download the signed and notarized universal `AgentActivity-$RESOLVED_VERSION-macos-universal.dmg`, then drag **AgentActivity** to **Applications**. Verify it with `AgentActivity-$RESOLVED_VERSION-macos-universal.dmg.sha256`. The universal ZIP and `AgentActivity-$RESOLVED_VERSION-macos-universal.zip.sha256` are also included.
 
+  `AgentActivity-$RESOLVED_VERSION-build-provenance.txt` is human-readable build metadata recording the source commit, workflow run, artifact names, and SHA-256 values. It is not a cryptographic GitHub artifact attestation.
+
   ## What’s changed
 
   $CHANGES

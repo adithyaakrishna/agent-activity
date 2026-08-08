@@ -8,12 +8,15 @@
 
 <p align="center">
   <a href="https://github.com/adithyaakrishna/agent-activity/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/adithyaakrishna/agent-activity/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/adithyaakrishna/agent-activity/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/adithyaakrishna/agent-activity?display_name=tag"></a>
+  <a href="https://github.com/adithyaakrishna/agent-activity/releases"><img alt="Private releases" src="https://img.shields.io/badge/releases-private-2F6F4E"></a>
 </p>
 
 ![AgentActivity native menu-bar popover](Snapshots/agent-activity-native.png)
 
 AgentActivity turns a year of coding-agent work into a compact calendar heatmap. It runs as a menu-bar-only app with no Dock icon or conventional window. Click the grid in the menu bar to compare sources, inspect a day, refresh the current source, or grant access to repository folders used for historical commit correlation.
+
+> [!WARNING]
+> Until the release integration removes seeded demo activity, this development build may show deterministic preview data before a live source refresh succeeds. Treat that preview only as interface scaffolding, never as recorded activity.
 
 ## Activity sources and accuracy
 
@@ -27,7 +30,7 @@ AgentActivity has five source tabs:
 | **GitHub** | The authenticated viewer's GraphQL contribution calendar | GitHub uses the authenticated contribution calendar, so daily contribution totals are exact for the authenticated account. Daily contribution types are unavailable. |
 | **Others** | Reserved for additional providers and manual imports | No live provider import is implemented; provider-specific metrics are unavailable. |
 
-Commit association remains derived. AgentActivity matches a repository and a session time window unless a provider hook records a specific Git HEAD. A displayed association is useful correlation, not definitive proof that an agent authored a commit. Active time and action counts are also derived from the observed session lifecycle. Unavailable values are shown as unavailable rather than estimated.
+Commit association remains derived. AgentActivity matches a repository and a session time window unless a provider hook records a specific Git HEAD. A displayed association is useful correlation, not definitive proof that an agent authored a commit. Active time and action counts are also derived from the observed session lifecycle. The seeded preview warning above applies until a live refresh replaces that development-only data.
 
 The detailed official-source analysis is in [Docs/activity-data-sources.md](Docs/activity-data-sources.md).
 
@@ -175,7 +178,7 @@ The release signs with hardened runtime, notarizes and staples the application a
 
 ### Manual GitHub Actions fallback
 
-Use **Actions > Release > Run workflow** only when local release is unavailable. Configure exactly these five repository secrets:
+Use **Actions > Release > Run workflow** only when local release is unavailable. The fallback accepts stable `X.Y.Z` versions only and runs from `main`. Configure exactly these five repository secrets:
 
 | Secret | Purpose |
 | --- | --- |
@@ -191,7 +194,9 @@ Encode the certificate on macOS with:
 base64 -i DeveloperIDApplication.p12 | pbcopy
 ```
 
-The fallback validates all five secrets, imports the certificate into a temporary Keychain, creates a temporary notary profile, produces the same four versioned artifacts, verifies notarization, attests DMG and ZIP provenance, publishes only to a private repository, and always deletes the temporary Keychain.
+The fallback validates tag ownership before it accesses release secrets, imports the certificate into a temporary Keychain, creates a temporary notary profile, produces the four versioned binary/checksum artifacts, and verifies notarization. It also publishes `AgentActivity-<version>-build-provenance.txt`, a deterministic human-readable manifest containing the repository, commit, ref, workflow run URL, artifact names, and SHA-256 values. This manifest is build provenance metadata, not a cryptographic GitHub artifact attestation.
+
+The workflow targets a GitHub environment named `release` as an additional policy boundary and always deletes its temporary Keychain. Configure environment protection rules when the repository plan supports them. Required-reviewer protection is not assumed to be available for every private repository on a personal GitHub plan.
 
 Release Drafter groups pull requests into Features, Fixes, Privacy & Security, Accessibility, Performance, Documentation, Dependencies, and Maintenance. It labels pull requests from conventional title prefixes, branch names, and changed paths. Dependabot checks GitHub Actions dependencies weekly. The Release Notes workflow can regenerate categorized notes for an existing `v<version>` release.
 
@@ -215,6 +220,6 @@ AgentActivity has no accounts, analytics, or telemetry upload. It processes acti
 
 ## Security
 
-Report vulnerabilities through the private process in [SECURITY.md](SECURITY.md). Do not place prompts, transcripts, credentials, or private repository content in an issue.
+Report vulnerabilities to the monitored maintainer address in [SECURITY.md](SECURITY.md). Do not place vulnerability details, prompts, transcripts, credentials, or private repository content in a regular issue.
 
 This is a private product repository. No public open-source license is granted.

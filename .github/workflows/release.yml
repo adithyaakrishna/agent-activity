@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Semantic version to publish, without the v prefix
+        description: Stable version to publish in X.Y.Z form, without the v prefix
         required: true
         type: string
 
@@ -12,40 +12,97 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}-${{ inputs.version }}
+  group: release-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
   release:
     name: Sign, notarize, and publish
+    if: github.ref == 'refs/heads/main'
+    environment: release
     runs-on: macos-26
     timeout-minutes: 60
     permissions:
-      attestations: write
       contents: write
-      id-token: write
     outputs:
       tag: ${{ steps.version.outputs.tag }}
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
+      - name: Check out dispatched main commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
+          ref: ${{ github.sha }}
 
-      - name: Validate release version
+      - name: Validate stable release version
         id: version
         shell: bash
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$ ]]; then
-            echo "Invalid semantic version: $RELEASE_VERSION" >&2
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid stable version: $RELEASE_VERSION (expected X.Y.Z)" >&2
             exit 2
           fi
 
           echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Preflight release commit and tag ownership
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          resolve_local_tag_commit() {
+            if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+              git rev-parse "$RELEASE_TAG^{commit}"
+            fi
+          }
+
+          resolve_remote_tag_commit() {
+            local object_id reference
+            local direct=""
+            local peeled=""
+            local remote_refs
+
+            remote_refs="$(git ls-remote --tags origin \
+              "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")"
+            while IFS=$'\t' read -r object_id reference; do
+              [[ -n "$object_id" ]] || continue
+              if [[ "$reference" == "refs/tags/$RELEASE_TAG^{}" ]]; then
+                peeled="$object_id"
+              elif [[ "$reference" == "refs/tags/$RELEASE_TAG" ]]; then
+                direct="$object_id"
+              fi
+            done <<< "$remote_refs"
+            printf '%s\n' "${peeled:-$direct}"
+          }
+
+          git fetch --no-tags origin main
+          head_commit="$(git rev-parse HEAD)"
+          if [[ "$head_commit" != "$GITHUB_SHA" ]]; then
+            echo "Checked-out main $head_commit does not match workflow commit $GITHUB_SHA." >&2
+            exit 1
+          fi
+
+          local_tag_commit="$(resolve_local_tag_commit)"
+          remote_tag_commit="$(resolve_remote_tag_commit)"
+          if [[ -n "$local_tag_commit" && "$local_tag_commit" != "$GITHUB_SHA" ]]; then
+            echo "Local tag $RELEASE_TAG belongs to $local_tag_commit, not $GITHUB_SHA." >&2
+            exit 1
+          fi
+          if [[ -n "$remote_tag_commit" && "$remote_tag_commit" != "$GITHUB_SHA" ]]; then
+            echo "Remote tag $RELEASE_TAG belongs to $remote_tag_commit, not $GITHUB_SHA." >&2
+            exit 1
+          fi
+
+          echo "Release target preflight passed for $RELEASE_TAG at $GITHUB_SHA."
+
+      - name: Lint and test
+        run: |
+          bash -n script/*.sh script/lib/*.sh
+          bash script/test_release_lib.sh
+          swift format lint --recursive --strict Sources Tests Package.swift
+          swift test --parallel
 
       - name: Validate release secrets
         env:
@@ -72,13 +129,6 @@ jobs:
             exit 2
           fi
 
-      - name: Lint and test
-        run: |
-          bash -n script/*.sh script/lib/*.sh
-          bash script/test_release_lib.sh
-          swift format lint --recursive --strict Sources Tests Package.swift
-          swift test --parallel
-
       - name: Import Developer ID certificate and notarization profile
         env:
           CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
@@ -100,7 +150,6 @@ jobs:
           security import "$certificate_path" \
             -k "$keychain_path" \
             -P "$CERTIFICATE_PASSWORD" \
-            -A \
             -T /usr/bin/codesign \
             -T /usr/bin/security
           security set-key-partition-list \
@@ -138,18 +187,35 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: ./script/verify_distribution.sh
 
-      - name: Attest DMG provenance
-        uses: actions/attest@v4
-        with:
-          subject-path: dist/AgentActivity-${{ steps.version.outputs.version }}-macos-universal.dmg
+      - name: Generate build provenance metadata
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          basename="AgentActivity-$RELEASE_VERSION-macos-universal"
+          manifest="dist/AgentActivity-$RELEASE_VERSION-build-provenance.txt"
+          artifacts=(
+            "$basename.dmg"
+            "$basename.dmg.sha256"
+            "$basename.zip"
+            "$basename.zip.sha256"
+          )
 
-      - name: Attest ZIP provenance
-        uses: actions/attest@v4
-        with:
-          subject-path: dist/AgentActivity-${{ steps.version.outputs.version }}-macos-universal.zip
+          {
+            printf 'AgentActivity build provenance metadata\n'
+            printf 'repository: %s\n' "$GITHUB_REPOSITORY"
+            printf 'commit_sha: %s\n' "$GITHUB_SHA"
+            printf 'ref: %s\n' "$GITHUB_REF"
+            printf 'workflow_run_url: %s/%s/actions/runs/%s\n' \
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            printf 'version: %s\n' "$RELEASE_VERSION"
+            for artifact in "${artifacts[@]}"; do
+              sha256="$(shasum -a 256 "dist/$artifact" | awk '{print $1}')"
+              printf 'artifact: %s  sha256: %s\n' "$artifact" "$sha256"
+            done
+          } > "$manifest"
 
-      - name: Upload signed release artifacts
-        uses: actions/upload-artifact@v6
+      - name: Upload signed artifacts and build metadata
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: AgentActivity-${{ steps.version.outputs.version }}-signed-notarized
           path: |
@@ -157,39 +223,103 @@ jobs:
             dist/AgentActivity-${{ steps.version.outputs.version }}-macos-universal.dmg.sha256
             dist/AgentActivity-${{ steps.version.outputs.version }}-macos-universal.zip
             dist/AgentActivity-${{ steps.version.outputs.version }}-macos-universal.zip.sha256
+            dist/AgentActivity-${{ steps.version.outputs.version }}-build-provenance.txt
           if-no-files-found: error
 
-      - name: Publish or update private GitHub release
+      - name: Publish or resume private GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
+          resolve_local_tag_commit() {
+            if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+              git rev-parse "$RELEASE_TAG^{commit}"
+            fi
+          }
+
+          resolve_remote_tag_commit() {
+            local object_id reference
+            local direct=""
+            local peeled=""
+            local remote_refs
+
+            remote_refs="$(git ls-remote --tags origin \
+              "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")"
+            while IFS=$'\t' read -r object_id reference; do
+              [[ -n "$object_id" ]] || continue
+              if [[ "$reference" == "refs/tags/$RELEASE_TAG^{}" ]]; then
+                peeled="$object_id"
+              elif [[ "$reference" == "refs/tags/$RELEASE_TAG" ]]; then
+                direct="$object_id"
+              fi
+            done <<< "$remote_refs"
+            printf '%s\n' "${peeled:-$direct}"
+          }
+
+          assert_release_target() {
+            local head_commit local_tag_commit remote_tag_commit
+            head_commit="$(git rev-parse HEAD)"
+            local_tag_commit="$(resolve_local_tag_commit)"
+            remote_tag_commit="$(resolve_remote_tag_commit)"
+            [[ "$head_commit" == "$GITHUB_SHA" ]] || {
+              echo "HEAD changed from workflow commit $GITHUB_SHA to $head_commit." >&2
+              exit 1
+            }
+            [[ -z "$local_tag_commit" || "$local_tag_commit" == "$GITHUB_SHA" ]] || {
+              echo "Local tag $RELEASE_TAG changed ownership to $local_tag_commit." >&2
+              exit 1
+            }
+            [[ -z "$remote_tag_commit" || "$remote_tag_commit" == "$GITHUB_SHA" ]] || {
+              echo "Remote tag $RELEASE_TAG changed ownership to $remote_tag_commit." >&2
+              exit 1
+            }
+          }
+
           if [[ "$(gh repo view --json visibility --jq .visibility)" != "PRIVATE" ]]; then
             echo "Refusing to publish AgentActivity to a non-private repository." >&2
             exit 1
           fi
+
+          assert_release_target
+          if ! git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            git tag "$RELEASE_TAG" "$GITHUB_SHA"
+          fi
+          if [[ -z "$(resolve_remote_tag_commit)" ]]; then
+            git push origin "refs/tags/$RELEASE_TAG"
+          fi
+          assert_release_target
 
           assets=(
             "dist/AgentActivity-$RELEASE_VERSION-macos-universal.dmg"
             "dist/AgentActivity-$RELEASE_VERSION-macos-universal.dmg.sha256"
             "dist/AgentActivity-$RELEASE_VERSION-macos-universal.zip"
             "dist/AgentActivity-$RELEASE_VERSION-macos-universal.zip.sha256"
+            "dist/AgentActivity-$RELEASE_VERSION-build-provenance.txt"
           )
 
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
             gh release edit "$RELEASE_TAG" \
               --target "$GITHUB_SHA" \
               --title "AgentActivity $RELEASE_TAG" \
               --draft=false \
-              --latest
+              --prerelease=false \
+              --latest \
+              --verify-tag
+            assert_release_target
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
           else
             gh release create "$RELEASE_TAG" "${assets[@]}" \
               --target "$GITHUB_SHA" \
               --title "AgentActivity $RELEASE_TAG" \
-              --generate-notes
+              --generate-notes \
+              --latest \
+              --verify-tag
           fi
+
+          assert_release_target
+          gh release view "$RELEASE_TAG" \
+            --json tagName,isDraft,isPrerelease,targetCommitish,url
 
       - name: Remove temporary Keychain
         if: always()

@@ -6,8 +6,8 @@ Security fixes apply to the latest AgentActivity release line. Update to the new
 
 ## Report a vulnerability privately
 
-Use GitHub's [private vulnerability-reporting flow](https://github.com/adithyaakrishna/agent-activity/security/advisories/new). Include the affected version, macOS version, impact, reproduction steps, and a minimal description of the expected and observed behavior.
+Email the monitored maintainer address [aadithya794@gmail.com](mailto:aadithya794@gmail.com?subject=%5BAgentActivity%20security%5D) with the exact subject `[AgentActivity security]`. Include the affected version, macOS version, impact, reproduction steps, and a minimal description of the expected and observed behavior.
 
-Do not open a regular issue for a suspected vulnerability. Do not place prompt text, transcript content, credentials, tokens, signing material, or private repository content in an issue. Redact sensitive paths and metadata from screenshots and logs. If a minimal reproduction needs sensitive material, first establish a private reporting channel through the vulnerability report.
+Do not open a regular issue for a suspected vulnerability or include vulnerability details there. Do not send prompt text, transcript content, credentials, tokens, signing material, or private repository content in either an issue or the initial email. Redact sensitive paths and metadata from screenshots and logs. The maintainer will establish an appropriate private follow-up channel if additional sensitive evidence is needed.
 
-The maintainers will confirm receipt, assess scope, coordinate a fix for the latest release line, and publish remediation details when disclosure is safe.
+The maintainer will confirm receipt, assess scope, coordinate a fix for the latest release line, and publish remediation details when disclosure is safe.
