@@ -146,6 +146,16 @@ cp "$fixture_plist" "$bad_ui_element_plist"
 /usr/libexec/PlistBuddy -c 'Set :LSUIElement false' "$bad_ui_element_plist"
 assert_rejected "malformed menu-bar-only flag" verify_bundle_metadata "$bad_ui_element_plist" 1.2.3
 
+applications_link="$fixture_output/Applications"
+ln -s /Applications "$applications_link"
+if ! (verify_applications_symlink "$applications_link" >/dev/null 2>&1); then
+  fail "expected exact /Applications symlink to pass"
+fi
+wrong_applications_link="$fixture_output/WrongApplications"
+ln -s /tmp "$wrong_applications_link"
+assert_rejected "Applications symlink with wrong target" \
+  verify_applications_symlink "$wrong_applications_link"
+
 fixture_executable="$fixture_output/AgentActivity"
 printf '#!/bin/sh\n' > "$fixture_executable"
 chmod 644 "$fixture_executable"
@@ -178,20 +188,77 @@ fi
 fake_hdiutil_dir="$fixture_output/fake-hdiutil"
 mkdir -p "$fake_hdiutil_dir"
 fake_hdiutil_log="$fixture_output/hdiutil.log"
+fake_hdiutil_state="$fixture_output/hdiutil.state"
 cat > "$fake_hdiutil_dir/hdiutil" <<'FAKE_HDIUTIL'
 #!/usr/bin/env bash
 printf '%s\n' "$1" >> "$FAKE_HDIUTIL_LOG"
-[[ "$1" == detach ]]
+case "$1" in
+  attach)
+    printf 'attached\n' > "$FAKE_HDIUTIL_STATE"
+    exit 23
+    ;;
+  info)
+    if [[ -s "$FAKE_HDIUTIL_STATE" ]]; then
+      cat <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>images</key><array><dict>
+<key>image-path</key><string>$FAKE_HDIUTIL_IMAGE</string>
+<key>system-entities</key><array><dict>
+<key>dev-entry</key><string>/dev/disk99</string>
+<key>mount-point</key><string>$FAKE_HDIUTIL_MOUNT</string>
+</dict></array></dict></array></dict></plist>
+PLIST
+    else
+      printf '%s\n' '<?xml version="1.0"?><plist version="1.0"><dict><key>images</key><array/></dict></plist>'
+    fi
+    ;;
+  detach)
+    if [[ "${FAKE_HDIUTIL_DETACH_FAILURE:-0}" == 1 ]]; then
+      exit 24
+    fi
+    [[ "${2:-}" == /dev/disk99 || "${3:-}" == /dev/disk99 ]] || exit 25
+    : > "$FAKE_HDIUTIL_STATE"
+    ;;
+  *) exit 26 ;;
+esac
 FAKE_HDIUTIL
 chmod 755 "$fake_hdiutil_dir/hdiutil"
+partial_image="$fixture_output/partial.dmg"
+partial_mount="$fixture_output/partial-mount"
 if (
   export PATH="$fake_hdiutil_dir:$PATH"
   export FAKE_HDIUTIL_LOG="$fake_hdiutil_log"
-  attach_dmg_readonly "$fixture_output/partial.dmg" "$fixture_output/partial-mount"
+  export FAKE_HDIUTIL_STATE="$fake_hdiutil_state"
+  export FAKE_HDIUTIL_IMAGE="$partial_image"
+  export FAKE_HDIUTIL_MOUNT="$partial_mount"
+  attach_dmg_readonly "$partial_image" "$partial_mount"
 ); then
   fail "partially mounted DMG fixture unexpectedly succeeded"
 fi
-assert_equal "$(tr '\n' ' ' < "$fake_hdiutil_log")" "attach detach "
+[[ ! -s "$fake_hdiutil_state" ]] || fail "failed attach left simulated DMG state attached"
+
+: > "$fake_hdiutil_log"
+: > "$fake_hdiutil_state"
+set +e
+detach_failure_output="$(
+  {
+    export PATH="$fake_hdiutil_dir:$PATH"
+    export FAKE_HDIUTIL_LOG="$fake_hdiutil_log"
+    export FAKE_HDIUTIL_STATE="$fake_hdiutil_state"
+    export FAKE_HDIUTIL_IMAGE="$partial_image"
+    export FAKE_HDIUTIL_MOUNT="$partial_mount"
+    export FAKE_HDIUTIL_DETACH_FAILURE=1
+    attach_dmg_readonly "$partial_image" "$partial_mount"
+  } 2>&1
+)"
+detach_failure_status=$?
+set -e
+[[ "$detach_failure_status" == 2 ]] || \
+  fail "detach cleanup failure returned $detach_failure_status instead of 2"
+[[ -s "$fake_hdiutil_state" ]] || fail "detach-failure fixture did not retain simulated state"
+printf '%s\n' "$detach_failure_output" | grep -q 'could not detach partially attached DMG' || \
+  fail "detach cleanup failure was not surfaced"
 
 if ((failures > 0)); then
   printf '%d release library fixture(s) failed\n' "$failures" >&2

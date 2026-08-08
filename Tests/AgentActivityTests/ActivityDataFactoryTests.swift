@@ -84,6 +84,48 @@ final class ActivityDataFactoryTests: XCTestCase {
   }
 
   @MainActor
+  func testStaleSameSourceFailureCannotOverwriteNewerSuccessAfterSourceSwitches() async {
+    let loader = ControlledSourceLoader()
+    let store = ActivityStore(
+      selectedSource: .codex,
+      sourceLoader: loader.load
+    )
+
+    await waitUntil { loader.requestedSources.count == 1 }
+    store.select(.cursor)
+    await waitUntil { loader.requestedSources.count == 2 }
+    store.select(.codex)
+    await waitUntil { loader.requestedSources.count == 3 }
+
+    XCTAssertEqual(loader.requestedSources, [.codex, .cursor, .codex])
+    loader.resolve(
+      request: 2,
+      with: .success(
+        ActivityHistoryResult(
+          dataset: ActivityDataset(weeks: [], months: []),
+          summary: ActivitySummary(
+            totalCommits: 17,
+            activeDays: 6,
+            longestStreak: 4,
+            currentStreak: 2
+          )
+        )
+      )
+    )
+    await waitUntil { store.loadState == .available }
+
+    loader.resolve(request: 0, with: .failure(FixtureLoadError.staleRequest))
+    loader.resolve(request: 1, with: .failure(FixtureLoadError.unavailable))
+    await waitUntil { loader.completedRequests.count == 3 }
+
+    XCTAssertEqual(store.selectedSource, .codex)
+    XCTAssertEqual(store.loadState, .available)
+    XCTAssertNil(store.refreshError)
+    XCTAssertEqual(store.summary.totalCommits, 17)
+    XCTAssertEqual(store.summary.activeDays, 6)
+  }
+
+  @MainActor
   func testNativePopoverRendersAtItsExactSize() throws {
     let content = ActivityPopoverView(
       store: ActivityStore(loadsLiveData: false),
@@ -129,13 +171,73 @@ final class ActivityDataFactoryTests: XCTestCase {
     let days = store.dataset.weeks.flatMap { $0 }
     XCTAssertTrue(
       days.allSatisfy { day in
-        day.intensity == 0 && day.commits == 0 && day.thingsWorkedOn == 0
+        day.intensity == 0
+          && day.thingsWorkedOn == 0
+          && day.commits == 0
+          && day.tokens == 0
+          && day.agents == 0
+          && day.additions == 0
+          && day.deletions == 0
+          && day.activeMinutes == 0
       })
+  }
+
+  @MainActor
+  private func waitUntil(
+    _ condition: @escaping @MainActor () -> Bool,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) async {
+    for _ in 0..<1_000 {
+      if condition() { return }
+      await Task.yield()
+    }
+    XCTFail("Timed out waiting for condition", file: file, line: line)
   }
 }
 
 private enum FixtureLoadError: LocalizedError {
   case unavailable
+  case staleRequest
 
-  var errorDescription: String? { "Fixture provider unavailable" }
+  var errorDescription: String? {
+    switch self {
+    case .unavailable: "Fixture provider unavailable"
+    case .staleRequest: "Stale provider failure"
+    }
+  }
+}
+
+@MainActor
+private final class ControlledSourceLoader {
+  private(set) var requestedSources: [AgentSource] = []
+  private(set) var completedRequests: Set<Int> = []
+  private var continuations: [Int: CheckedContinuation<ActivityHistoryResult, Error>] = [:]
+
+  func load(_ source: AgentSource) async throws -> ActivityHistoryResult {
+    let request = requestedSources.count
+    requestedSources.append(source)
+    do {
+      let result = try await withCheckedThrowingContinuation { continuation in
+        continuations[request] = continuation
+      }
+      completedRequests.insert(request)
+      return result
+    } catch {
+      completedRequests.insert(request)
+      throw error
+    }
+  }
+
+  func resolve(
+    request: Int,
+    with result: Result<ActivityHistoryResult, Error>,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    guard let continuation = continuations.removeValue(forKey: request) else {
+      return XCTFail("Missing request \(request)", file: file, line: line)
+    }
+    continuation.resume(with: result)
+  }
 }

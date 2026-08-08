@@ -18,6 +18,7 @@ final class ActivityStore: ObservableObject {
   @Published private(set) var refreshError: String?
   @Published private(set) var replayID = UUID()
   private var refreshTask: Task<Void, Never>?
+  private var activeRefreshID: UUID?
   private var cachedResults: [AgentSource: ActivityHistoryResult] = [:]
   private let sourceLoader: SourceLoader
 
@@ -42,6 +43,7 @@ final class ActivityStore: ObservableObject {
 
   func select(_ source: AgentSource) {
     guard source != selectedSource else { return }
+    cancelRefresh()
     selectedSource = source
     refreshError = nil
     replayID = UUID()
@@ -79,7 +81,7 @@ final class ActivityStore: ObservableObject {
   }
 
   private func refresh() {
-    refreshTask?.cancel()
+    cancelRefresh()
     guard selectedSource != .others else {
       refreshError = Self.othersUnavailableMessage
       loadState = .unavailable(Self.othersUnavailableMessage)
@@ -87,27 +89,49 @@ final class ActivityStore: ObservableObject {
     }
 
     let requestedSource = selectedSource
+    let refreshID = UUID()
+    activeRefreshID = refreshID
     loadState = .loading
     refreshTask = Task { [weak self] in
       do {
         guard let self else { return }
         let result = try await sourceLoader(requestedSource)
         try Task.checkCancellation()
-        guard selectedSource == requestedSource else { return }
+        guard isCurrentRefresh(refreshID, source: requestedSource) else { return }
         cachedResults[requestedSource] = result
         dataset = result.dataset
         summary = result.summary
         loadState = .available
         refreshError = nil
         replayID = UUID()
+        finishRefresh(refreshID)
       } catch is CancellationError {
+        guard let self, self.isCurrentRefresh(refreshID, source: requestedSource) else { return }
+        finishRefresh(refreshID)
         return
       } catch {
-        guard let self, self.selectedSource == requestedSource else { return }
+        guard let self, self.isCurrentRefresh(refreshID, source: requestedSource) else { return }
         refreshError = error.localizedDescription
         loadState = .unavailable(error.localizedDescription)
+        finishRefresh(refreshID)
       }
     }
+  }
+
+  private func cancelRefresh() {
+    refreshTask?.cancel()
+    refreshTask = nil
+    activeRefreshID = nil
+  }
+
+  private func isCurrentRefresh(_ refreshID: UUID, source: AgentSource) -> Bool {
+    activeRefreshID == refreshID && selectedSource == source
+  }
+
+  private func finishRefresh(_ refreshID: UUID) {
+    guard activeRefreshID == refreshID else { return }
+    refreshTask = nil
+    activeRefreshID = nil
   }
 
   private func applyEmptyState() {

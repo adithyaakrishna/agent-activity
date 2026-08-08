@@ -17,6 +17,10 @@ FAKE_BASH
 
 cat > "$FIXTURE_ROOT/fake-bin/swift" <<'FAKE_SWIFT'
 #!/bin/bash
+printf 'swift %s\n' "$*" >> "$FIXTURE_QUALITY_LOG"
+if [[ "${1:-} ${2:-}" == "format lint" && "${SWIFT_FORMAT_FAIL:-0}" == 1 ]]; then
+  exit 65
+fi
 exit 0
 FAKE_SWIFT
 
@@ -109,6 +113,7 @@ LAST_OUTPUT=""
 MUTATION_LOG="$FIXTURE_ROOT/mutations.log"
 DISTRIBUTION_LOG="$FIXTURE_ROOT/distribution.log"
 HEAD_READ_LOG="$FIXTURE_ROOT/head-reads.log"
+QUALITY_LOG="$FIXTURE_ROOT/quality.log"
 RELEASE_COMMIT=1111111111111111111111111111111111111111
 
 fail() {
@@ -128,12 +133,14 @@ run_release() {
   : > "$MUTATION_LOG"
   : > "$DISTRIBUTION_LOG"
   : > "$HEAD_READ_LOG"
+  : > "$QUALITY_LOG"
   set +e
   LAST_OUTPUT="$(env \
     PATH="$FIXTURE_ROOT/fake-bin:/usr/bin:/bin" \
     FIXTURE_MUTATION_LOG="$MUTATION_LOG" \
     FIXTURE_DISTRIBUTION_LOG="$DISTRIBUTION_LOG" \
     FIXTURE_HEAD_READ_LOG="$HEAD_READ_LOG" \
+    FIXTURE_QUALITY_LOG="$QUALITY_LOG" \
     RELEASE_COMMIT="$RELEASE_COMMIT" \
     HEAD_AFTER_VERIFY="${HEAD_AFTER_VERIFY:-$RELEASE_COMMIT}" \
     REPOSITORY_VISIBILITY="${REPOSITORY_VISIBILITY:-PRIVATE}" \
@@ -141,6 +148,7 @@ run_release() {
     REMOTE_TAG_COMMIT="${REMOTE_TAG_COMMIT:-}" \
     RELEASE_EXISTS="${RELEASE_EXISTS:-0}" \
     GH_UNAVAILABLE="${GH_UNAVAILABLE:-0}" \
+    SWIFT_FORMAT_FAIL="${SWIFT_FORMAT_FAIL:-0}" \
     /bin/bash "$FIXTURE_ROOT/script/release_github.sh" 0.1.0 "$dry_run" 2>&1)"
   LAST_STATUS=$?
   set -e
@@ -153,6 +161,28 @@ assert_no_mutation() {
 assert_no_distribution() {
   [[ ! -s "$DISTRIBUTION_LOG" ]] || fail "$1 invoked distribution/notarization"
 }
+
+# Swift format failure must stop before distribution or publication.
+SWIFT_FORMAT_FAIL=1 GH_UNAVAILABLE=1 run_release 1
+[[ "$LAST_STATUS" != 0 ]] || fail "dry-run continued after Swift format failure"
+assert_no_mutation "Swift format failure"
+assert_no_distribution "Swift format failure"
+grep -q '^swift format lint --recursive --strict ' "$QUALITY_LOG" || \
+  fail "primary local release path did not invoke strict Swift format lint"
+SWIFT_FORMAT_FAIL=0
+
+write_release_env
+SWIFT_FORMAT_FAIL=1 \
+  LOCAL_TAG_COMMIT="$RELEASE_COMMIT" \
+  REMOTE_TAG_COMMIT="$RELEASE_COMMIT" \
+  RELEASE_EXISTS=1 \
+  REPOSITORY_VISIBILITY=PRIVATE \
+  GH_UNAVAILABLE=0 \
+  run_release 0
+[[ "$LAST_STATUS" != 0 ]] || fail "real release continued after Swift format failure"
+assert_no_mutation "real-release Swift format failure"
+assert_no_distribution "real-release Swift format failure"
+SWIFT_FORMAT_FAIL=0
 
 # Dry-run must not parse, validate, or execute .env before choosing isolation.
 malicious_marker="$FIXTURE_ROOT/dry-run-env-executed"

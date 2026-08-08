@@ -64,6 +64,7 @@ fi
 
 bash -n "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/lib/*.sh
 bash "$SCRIPT_DIR/test_release_lib.sh"
+(cd "$ROOT_DIR" && swift format lint --recursive --strict Sources Tests Package.swift)
 swift test --package-path "$ROOT_DIR" --parallel
 
 BUILD_NUMBER="$(git -C "$ROOT_DIR" rev-list --count HEAD)"

@@ -36,6 +36,16 @@ verify_executable_file() {
   [[ -x "$path" ]] || die "$label is not executable"
 }
 
+verify_applications_symlink() {
+  local path="$1"
+  local target
+
+  [[ -L "$path" ]] || die "DMG is missing Applications symlink"
+  target="$(readlink "$path")" || die "could not read Applications symlink"
+  [[ "$target" == /Applications ]] || \
+    die "DMG Applications symlink must target /Applications (found $target)"
+}
+
 verify_checksum_manifest() {
   local checksum_path="$1"
   local artifact_path="$2"
@@ -83,12 +93,101 @@ verify_signature_flags() {
 attach_dmg_readonly() {
   local image="$1"
   local mount_point="$2"
+  local targets remaining target cleanup_failed=0
 
   if hdiutil attach -readonly -nobrowse -mountpoint "$mount_point" "$image" >/dev/null; then
     return 0
   fi
 
-  # A failed attach can still leave its requested mount point active.
-  hdiutil detach "$mount_point" >/dev/null 2>&1 || true
+  if ! targets="$(partial_dmg_detach_targets "$image" "$mount_point")"; then
+    printf 'error: could not inspect partial DMG state after failed attach\n' >&2
+    return 2
+  fi
+  while IFS= read -r target; do
+    [[ -n "$target" ]] || continue
+    if hdiutil detach "$target" >/dev/null 2>&1; then
+      continue
+    fi
+    if hdiutil detach -force "$target" >/dev/null 2>&1; then
+      continue
+    fi
+    printf 'error: could not detach partially attached DMG target %s\n' "$target" >&2
+    cleanup_failed=1
+  done <<< "$targets"
+
+  if ! remaining="$(partial_dmg_detach_targets "$image" "$mount_point")"; then
+    printf 'error: could not verify partial DMG cleanup after failed attach\n' >&2
+    return 2
+  fi
+  if [[ -n "$remaining" ]]; then
+    printf 'error: could not detach partially attached DMG; residual target %s remains\n' \
+      "$(printf '%s\n' "$remaining" | head -n 1)" >&2
+    return 2
+  fi
+  ((cleanup_failed == 0)) || return 2
   return 1
+}
+
+partial_dmg_detach_targets() {
+  local image="$1"
+  local requested_mount="$2"
+  local info image_count image_index image_path entity_count entity_index
+  local device mount fallback_device mounted_device exact_target image_matches
+
+  info="$(hdiutil info -plist 2>/dev/null)" || return 2
+  image_count="$(printf '%s' "$info" | plutil -extract images raw -o - -- - 2>/dev/null)" || \
+    return 2
+  [[ "$image_count" =~ ^[0-9]+$ ]] || return 2
+
+  image_index=0
+  while ((image_index < image_count)); do
+    image_path="$(
+      printf '%s' "$info" \
+        | plutil -extract "images.$image_index.image-path" raw -o - -- - 2>/dev/null
+    )" || return 2
+    entity_count="$(
+      printf '%s' "$info" \
+        | plutil -extract "images.$image_index.system-entities" raw -o - -- - 2>/dev/null
+    )" || return 2
+    [[ "$entity_count" =~ ^[0-9]+$ ]] || return 2
+
+    image_matches=0
+    [[ "$image_path" == "$image" ]] && image_matches=1
+    fallback_device=""
+    mounted_device=""
+    exact_target=""
+    entity_index=0
+    while ((entity_index < entity_count)); do
+      device="$(
+        printf '%s' "$info" \
+          | plutil -extract "images.$image_index.system-entities.$entity_index.dev-entry" \
+            raw -o - -- - 2>/dev/null || true
+      )"
+      mount="$(
+        printf '%s' "$info" \
+          | plutil -extract "images.$image_index.system-entities.$entity_index.mount-point" \
+            raw -o - -- - 2>/dev/null || true
+      )"
+      [[ -n "$device" ]] && fallback_device="$device"
+      [[ -n "$mount" && -n "$device" ]] && mounted_device="$device"
+      if [[ "$mount" == "$requested_mount" ]]; then
+        image_matches=1
+        exact_target="${device:-$mount}"
+      fi
+      entity_index=$((entity_index + 1))
+    done
+
+    if ((image_matches == 1)); then
+      if [[ -n "$exact_target" ]]; then
+        printf '%s\n' "$exact_target"
+      elif [[ -n "$mounted_device" ]]; then
+        printf '%s\n' "$mounted_device"
+      elif [[ -n "$fallback_device" ]]; then
+        printf '%s\n' "$fallback_device"
+      else
+        return 2
+      fi
+    fi
+    image_index=$((image_index + 1))
+  done
 }

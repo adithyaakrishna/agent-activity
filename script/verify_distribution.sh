@@ -70,7 +70,7 @@ verify_app() {
 verify_app "$APP_BUNDLE"
 attach_dmg_readonly "$DMG_PATH" "$MOUNT_POINT" || die "could not mount distribution DMG"
 mounted=1
-[[ -L "$MOUNT_POINT/Applications" ]] || die "DMG is missing Applications symlink"
+verify_applications_symlink "$MOUNT_POINT/Applications"
 verify_app "$MOUNT_POINT/AgentActivity.app"
 
 if [[ "$REQUIRE_NOTARIZATION" == 1 ]]; then
