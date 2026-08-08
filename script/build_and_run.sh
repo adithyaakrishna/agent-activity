@@ -1,29 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 MODE="${1:-run}"
 APP_NAME="AgentActivity"
 BUNDLE_ID="com.adikris.AgentActivity"
+APP_BUNDLE="$ROOT_DIR/dist/$APP_NAME.app"
+APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIST_DIR="$ROOT_DIR/dist"
-APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
-APP_CONTENTS="$APP_BUNDLE/Contents"
-APP_MACOS="$APP_CONTENTS/MacOS"
-APP_BINARY="$APP_MACOS/$APP_NAME"
-INFO_PLIST="$APP_CONTENTS/Info.plist"
+case "$MODE" in
+  run|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify) ;;
+  *)
+    printf 'usage: %s [run|--debug|--logs|--telemetry|--verify]\n' "$0" >&2
+    exit 2
+    ;;
+esac
+
+CONFIGURATION=debug \
+VERSION="${VERSION:-0.1.0-dev}" \
+BUILD_NUMBER="${BUILD_NUMBER:-0}" \
+OUTPUT_DIR="$ROOT_DIR/dist" \
+SIGNING_IDENTITY=- \
+UNIVERSAL=0 \
+  "$SCRIPT_DIR/build_app.sh"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-
-swift build --package-path "$ROOT_DIR"
-BUILD_BINARY="$(swift build --package-path "$ROOT_DIR" --show-bin-path)/$APP_NAME"
-
-rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_MACOS"
-cp "$BUILD_BINARY" "$APP_BINARY"
-chmod +x "$APP_BINARY"
-
-cp "$ROOT_DIR/Resources/Info.plist" "$INFO_PLIST"
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
@@ -46,11 +48,21 @@ case "$MODE" in
     ;;
   --verify|verify)
     open_app
-    sleep 1
-    pgrep -x "$APP_NAME" >/dev/null
-    ;;
-  *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
-    exit 2
+    verified_pid=""
+    for _ in {1..10}; do
+      verified_pid="$(pgrep -x "$APP_NAME" | head -n 1 || true)"
+      [[ -n "$verified_pid" ]] && break
+      sleep 1
+    done
+    [[ -n "$verified_pid" ]] || {
+      printf 'error: %s did not remain running after launch\n' "$APP_NAME" >&2
+      exit 1
+    }
+    process_name="$(ps -p "$verified_pid" -o comm= | sed 's/^[[:space:]]*//')"
+    [[ "$process_name" == "$APP_BINARY" ]] || {
+      printf 'error: unexpected process for pid %s: %s\n' "$verified_pid" "$process_name" >&2
+      exit 1
+    }
+    printf 'Verified %s is running as pid %s\n' "$APP_BINARY" "$verified_pid"
     ;;
 esac
