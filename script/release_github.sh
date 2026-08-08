@@ -18,6 +18,7 @@ if [[ "$DRY_RUN" == 0 ]]; then
   gh auth status
   [[ "$(git -C "$ROOT_DIR" branch --show-current)" == main ]] || die "release must run from main"
   require_clean_worktree "$ROOT_DIR"
+  EXPECTED_RELEASE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
   load_optional_env "$ROOT_DIR/.env"
   SIGNING_IDENTITY="${SIGNING_IDENTITY:-$(find_developer_id_identity)}"
   [[ -n "$SIGNING_IDENTITY" && "$SIGNING_IDENTITY" != "-" ]] || \
@@ -30,6 +31,29 @@ if [[ "$DRY_RUN" == 0 ]]; then
   REPOSITORY_VISIBILITY="$(gh repo view "$REPOSITORY" --json visibility --jq .visibility)"
   [[ "$REPOSITORY_VISIBILITY" == PRIVATE ]] || \
     die "refusing to publish AgentActivity to a non-private repository"
+
+  TAG="v$VERSION"
+  LOCAL_TAG_COMMIT="$(git -C "$ROOT_DIR" rev-list -n 1 "$TAG" 2>/dev/null || true)"
+  REMOTE_TAG_REFS="$(git -C "$ROOT_DIR" ls-remote --tags origin \
+    "refs/tags/$TAG" "refs/tags/$TAG^{}")" || die "could not inspect remote tag $TAG"
+  REMOTE_TAG_COMMIT=""
+  REMOTE_TAG_DIRECT=""
+  while IFS=$'\t' read -r object_id reference; do
+    [[ -n "$object_id" ]] || continue
+    if [[ "$reference" == "refs/tags/$TAG^{}" ]]; then
+      REMOTE_TAG_COMMIT="$object_id"
+    elif [[ "$reference" == "refs/tags/$TAG" ]]; then
+      REMOTE_TAG_DIRECT="$object_id"
+    fi
+  done <<< "$REMOTE_TAG_REFS"
+  REMOTE_TAG_COMMIT="${REMOTE_TAG_COMMIT:-$REMOTE_TAG_DIRECT}"
+
+  if [[ -n "$LOCAL_TAG_COMMIT" && "$LOCAL_TAG_COMMIT" != "$EXPECTED_RELEASE_COMMIT" ]]; then
+    die "local tag $TAG does not resolve to expected release commit $EXPECTED_RELEASE_COMMIT"
+  fi
+  if [[ -n "$REMOTE_TAG_COMMIT" && "$REMOTE_TAG_COMMIT" != "$EXPECTED_RELEASE_COMMIT" ]]; then
+    die "remote tag $TAG does not resolve to expected release commit $EXPECTED_RELEASE_COMMIT"
+  fi
 else
   SIGNING_IDENTITY=-
   NOTARY_PROFILE=AgentActivity-Notary
@@ -61,32 +85,12 @@ if [[ "$DRY_RUN" == 1 ]]; then
 fi
 
 BASENAME="$(artifact_basename "$VERSION")"
-TAG="v$VERSION"
-RELEASE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
-LOCAL_TAG_COMMIT="$(git -C "$ROOT_DIR" rev-list -n 1 "$TAG" 2>/dev/null || true)"
-REMOTE_TAG_REFS="$(git -C "$ROOT_DIR" ls-remote --tags origin \
-  "refs/tags/$TAG" "refs/tags/$TAG^{}")" || die "could not inspect remote tag $TAG"
-REMOTE_TAG_COMMIT=""
-REMOTE_TAG_DIRECT=""
-while IFS=$'\t' read -r object_id reference; do
-  [[ -n "$object_id" ]] || continue
-  if [[ "$reference" == "refs/tags/$TAG^{}" ]]; then
-    REMOTE_TAG_COMMIT="$object_id"
-  elif [[ "$reference" == "refs/tags/$TAG" ]]; then
-    REMOTE_TAG_DIRECT="$object_id"
-  fi
-done <<< "$REMOTE_TAG_REFS"
-REMOTE_TAG_COMMIT="${REMOTE_TAG_COMMIT:-$REMOTE_TAG_DIRECT}"
-
-if [[ -n "$LOCAL_TAG_COMMIT" && "$LOCAL_TAG_COMMIT" != "$RELEASE_COMMIT" ]]; then
-  die "local tag $TAG does not resolve to verified release commit $RELEASE_COMMIT"
-fi
-if [[ -n "$REMOTE_TAG_COMMIT" && "$REMOTE_TAG_COMMIT" != "$RELEASE_COMMIT" ]]; then
-  die "remote tag $TAG does not resolve to verified release commit $RELEASE_COMMIT"
-fi
+CURRENT_RELEASE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+[[ "$CURRENT_RELEASE_COMMIT" == "$EXPECTED_RELEASE_COMMIT" ]] || \
+  die "HEAD changed during release verification; expected $EXPECTED_RELEASE_COMMIT, found $CURRENT_RELEASE_COMMIT"
 if [[ -z "$LOCAL_TAG_COMMIT" && -z "$REMOTE_TAG_COMMIT" ]]; then
   git -C "$ROOT_DIR" tag -a "$TAG" -m "AgentActivity $VERSION"
-  LOCAL_TAG_COMMIT="$RELEASE_COMMIT"
+  LOCAL_TAG_COMMIT="$EXPECTED_RELEASE_COMMIT"
 fi
 if [[ -z "$REMOTE_TAG_COMMIT" ]]; then
   git -C "$ROOT_DIR" push origin "$TAG"

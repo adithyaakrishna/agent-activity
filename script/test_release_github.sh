@@ -22,6 +22,7 @@ FAKE_SWIFT
 
 cat > "$FIXTURE_ROOT/script/build_distribution.sh" <<'FAKE_BUILD'
 #!/bin/bash
+printf 'build-distribution\n' >> "$FIXTURE_DISTRIBUTION_LOG"
 exit 0
 FAKE_BUILD
 
@@ -44,7 +45,16 @@ case "${1:-} ${2:-} ${3:-}" in
     [[ -n "${LOCAL_TAG_COMMIT:-}" ]] || exit 128
     printf '%s\n' "$LOCAL_TAG_COMMIT"
     ;;
-  "rev-parse HEAD ") printf '%s\n' "$RELEASE_COMMIT" ;;
+  "rev-parse HEAD ")
+    first_head_read=0
+    [[ -s "$FIXTURE_HEAD_READ_LOG" ]] || first_head_read=1
+    printf 'read\n' >> "$FIXTURE_HEAD_READ_LOG"
+    if [[ "$first_head_read" == 1 ]]; then
+      printf '%s\n' "$RELEASE_COMMIT"
+    else
+      printf '%s\n' "${HEAD_AFTER_VERIFY:-$RELEASE_COMMIT}"
+    fi
+    ;;
   "rev-parse -q --verify")
     [[ -n "${LOCAL_TAG_COMMIT:-}" ]] || exit 1
     printf '%s\n' "$LOCAL_TAG_COMMIT"
@@ -97,6 +107,8 @@ failures=0
 LAST_STATUS=0
 LAST_OUTPUT=""
 MUTATION_LOG="$FIXTURE_ROOT/mutations.log"
+DISTRIBUTION_LOG="$FIXTURE_ROOT/distribution.log"
+HEAD_READ_LOG="$FIXTURE_ROOT/head-reads.log"
 RELEASE_COMMIT=1111111111111111111111111111111111111111
 
 fail() {
@@ -114,11 +126,16 @@ write_release_env() {
 run_release() {
   local dry_run="$1"
   : > "$MUTATION_LOG"
+  : > "$DISTRIBUTION_LOG"
+  : > "$HEAD_READ_LOG"
   set +e
   LAST_OUTPUT="$(env \
     PATH="$FIXTURE_ROOT/fake-bin:/usr/bin:/bin" \
     FIXTURE_MUTATION_LOG="$MUTATION_LOG" \
+    FIXTURE_DISTRIBUTION_LOG="$DISTRIBUTION_LOG" \
+    FIXTURE_HEAD_READ_LOG="$HEAD_READ_LOG" \
     RELEASE_COMMIT="$RELEASE_COMMIT" \
+    HEAD_AFTER_VERIFY="${HEAD_AFTER_VERIFY:-$RELEASE_COMMIT}" \
     REPOSITORY_VISIBILITY="${REPOSITORY_VISIBILITY:-PRIVATE}" \
     LOCAL_TAG_COMMIT="${LOCAL_TAG_COMMIT:-}" \
     REMOTE_TAG_COMMIT="${REMOTE_TAG_COMMIT:-}" \
@@ -133,6 +150,10 @@ assert_no_mutation() {
   [[ ! -s "$MUTATION_LOG" ]] || fail "$1 mutated release state: $(tr '\n' ' ' < "$MUTATION_LOG")"
 }
 
+assert_no_distribution() {
+  [[ ! -s "$DISTRIBUTION_LOG" ]] || fail "$1 invoked distribution/notarization"
+}
+
 # Dry-run must not parse, validate, or execute .env before choosing isolation.
 malicious_marker="$FIXTURE_ROOT/dry-run-env-executed"
 printf 'touch %s\n' "$malicious_marker" > "$FIXTURE_ROOT/.env"
@@ -141,12 +162,14 @@ LOCAL_TAG_COMMIT="" REMOTE_TAG_COMMIT="" RELEASE_EXISTS=0 REPOSITORY_VISIBILITY=
 [[ "$LAST_STATUS" == 0 ]] || fail "dry-run failed without a remote repository: $LAST_OUTPUT"
 [[ ! -e "$malicious_marker" ]] || fail "dry-run executed malicious .env"
 assert_no_mutation "dry-run"
+grep -q '^build-distribution$' "$DISTRIBUTION_LOG" || fail "dry-run skipped distribution build"
 
 # Public repository visibility must fail before tag, push, or release mutation.
 write_release_env
 LOCAL_TAG_COMMIT="" REMOTE_TAG_COMMIT="" RELEASE_EXISTS=0 REPOSITORY_VISIBILITY=PUBLIC GH_UNAVAILABLE=0 run_release 0
 [[ "$LAST_STATUS" != 0 ]] || fail "public repository release unexpectedly succeeded"
 assert_no_mutation "public repository rejection"
+assert_no_distribution "public repository rejection"
 
 # A matching verified tag is resumable and must not be recreated or repushed.
 write_release_env
@@ -156,12 +179,28 @@ grep -q '^gh-release-create ' "$MUTATION_LOG" || fail "resumed release did not c
 if grep -Eq '^(git-tag|git-push) ' "$MUTATION_LOG"; then
   fail "matching existing tag was recreated or repushed"
 fi
+grep -q '^build-distribution$' "$DISTRIBUTION_LOG" || fail "matching existing tag skipped distribution build"
 
-# A mismatched remote tag must fail before any mutation.
+# A mismatched local tag must fail before distribution or notarization.
+write_release_env
+LOCAL_TAG_COMMIT=2222222222222222222222222222222222222222 REMOTE_TAG_COMMIT="" RELEASE_EXISTS=0 REPOSITORY_VISIBILITY=PRIVATE run_release 0
+[[ "$LAST_STATUS" != 0 ]] || fail "mismatched local tag unexpectedly succeeded"
+assert_no_mutation "mismatched local tag"
+assert_no_distribution "mismatched local tag"
+
+# A mismatched remote tag must fail before distribution, notarization, or mutation.
 write_release_env
 LOCAL_TAG_COMMIT="" REMOTE_TAG_COMMIT=2222222222222222222222222222222222222222 RELEASE_EXISTS=0 REPOSITORY_VISIBILITY=PRIVATE run_release 0
 [[ "$LAST_STATUS" != 0 ]] || fail "mismatched remote tag unexpectedly succeeded"
 assert_no_mutation "mismatched remote tag"
+assert_no_distribution "mismatched remote tag"
+
+# HEAD must remain the preflight release commit through distribution verification.
+write_release_env
+LOCAL_TAG_COMMIT="$RELEASE_COMMIT" REMOTE_TAG_COMMIT="$RELEASE_COMMIT" RELEASE_EXISTS=0 REPOSITORY_VISIBILITY=PRIVATE HEAD_AFTER_VERIFY=3333333333333333333333333333333333333333 run_release 0
+[[ "$LAST_STATUS" != 0 ]] || fail "release continued after HEAD changed during distribution"
+assert_no_mutation "changed HEAD after verification"
+grep -q '^build-distribution$' "$DISTRIBUTION_LOG" || fail "HEAD reassertion fixture skipped distribution build"
 
 # An existing release must be updated and receive clobbering uploads.
 write_release_env
