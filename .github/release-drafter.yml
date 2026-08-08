@@ -1,0 +1,144 @@
+name-template: "AgentActivity v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+tag-prefix: "v"
+change-template: "- $TITLE by @$AUTHOR in #$NUMBER"
+change-title-escapes: "\\<*_&"
+no-changes-template: "- No user-facing changes"
+sort-by: merged_at
+sort-direction: descending
+
+categories:
+  - type: pre-exclude
+    when:
+      labels:
+        - skip-changelog
+        - duplicate
+        - invalid
+
+  - title: Features
+    semver-increment: minor
+    exclusive: true
+    when:
+      labels:
+        - feature
+        - enhancement
+
+  - title: Fixes
+    semver-increment: patch
+    exclusive: true
+    when:
+      labels:
+        - bug
+        - fix
+
+  - title: Privacy & Security
+    semver-increment: patch
+    exclusive: true
+    when:
+      labels:
+        - privacy
+        - security
+
+  - title: Accessibility
+    semver-increment: patch
+    exclusive: true
+    when:
+      label: accessibility
+
+  - title: Performance
+    semver-increment: patch
+    exclusive: true
+    when:
+      label: performance
+
+  - title: Documentation
+    semver-increment: patch
+    exclusive: true
+    when:
+      labels:
+        - documentation
+        - docs
+
+  - title: Dependencies
+    semver-increment: patch
+    exclusive: true
+    collapse-after: 5
+    when:
+      label: dependencies
+
+  - title: Maintenance
+    semver-increment: patch
+
+autolabeler:
+  - label: feature
+    branch:
+      - "/^(feature|feat)\\/.+/"
+    title:
+      - "/^feat(\\(.+\\))?!?:/i"
+
+  - label: bug
+    branch:
+      - "/^(fix|bugfix)\\/.+/"
+    title:
+      - "/^fix(\\(.+\\))?!?:/i"
+
+  - label: privacy
+    branch:
+      - "/^(privacy|security)\\/.+/"
+    title:
+      - "/^(privacy|security)(\\(.+\\))?!?:/i"
+    files:
+      - "SECURITY.md"
+      - "Sources/AgentActivityHookCore/**"
+
+  - label: accessibility
+    branch:
+      - "/^(accessibility|a11y)\\/.+/"
+    title:
+      - "/^(accessibility|a11y)(\\(.+\\))?!?:/i"
+    files:
+      - "Tests/**/*Accessibility*"
+
+  - label: performance
+    branch:
+      - "/^(performance|perf)\\/.+/"
+    title:
+      - "/^perf(\\(.+\\))?!?:/i"
+
+  - label: documentation
+    branch:
+      - "/^docs\\/.+/"
+    title:
+      - "/^docs(\\(.+\\))?!?:/i"
+    files:
+      - "**/*.md"
+
+  - label: dependencies
+    branch:
+      - "/^(dependabot|dependencies)\\/.+/"
+    title:
+      - "/^(build|chore)\\(deps.*\\)!?:/i"
+    files:
+      - "Package.resolved"
+
+  - label: maintenance
+    branch:
+      - "/^(build|chore|ci|refactor)\\/.+/"
+    title:
+      - "/^(build|chore|ci|refactor)(\\(.+\\))?!?:/i"
+    files:
+      - ".github/**"
+      - "script/**"
+
+template: |
+  ## Download
+
+  Download the signed and notarized universal `AgentActivity-$RESOLVED_VERSION-macos-universal.dmg`, then drag **AgentActivity** to **Applications**. Verify it with `AgentActivity-$RESOLVED_VERSION-macos-universal.dmg.sha256`. The universal ZIP and `AgentActivity-$RESOLVED_VERSION-macos-universal.zip.sha256` are also included.
+
+  ## What’s changed
+
+  $CHANGES
+
+  ## Contributors
+
+  $CONTRIBUTORS

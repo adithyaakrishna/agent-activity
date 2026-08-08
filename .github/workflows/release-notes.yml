@@ -1,0 +1,80 @@
+name: Release Notes
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing release tag to update
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to update, for example v1.0.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-notes-${{ inputs.tag }}
+  cancel-in-progress: true
+
+jobs:
+  update-release-notes:
+    name: Generate categorized release notes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag }}
+
+    steps:
+      - name: Validate release tag
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$ ]]; then
+            echo "Invalid semantic release tag: $RELEASE_TAG" >&2
+            exit 2
+          fi
+
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease
+
+      - name: Generate release notes
+        run: |
+          release_version="${RELEASE_TAG#v}"
+          response_file="$RUNNER_TEMP/generated-release-notes.json"
+          generated_file="$RUNNER_TEMP/generated-release-notes.md"
+          notes_file="$RUNNER_TEMP/release-notes.md"
+
+          gh api \
+            --method POST \
+            "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$RELEASE_TAG" \
+            -f target_commitish="main" \
+            -f configuration_file_path=".github/release.yml" \
+            > "$response_file"
+
+          jq -er '.body' "$response_file" > "$generated_file"
+
+          {
+            printf '## Download\n\n'
+            printf 'Download the signed and notarized universal `AgentActivity-%s-macos-universal.dmg`, then drag **AgentActivity** to **Applications**.\n\n' "$release_version"
+            printf 'Verify it with `AgentActivity-%s-macos-universal.dmg.sha256`. The universal ZIP and `AgentActivity-%s-macos-universal.zip.sha256` are provided for direct deployment.\n\n' "$release_version" "$release_version"
+            cat "$generated_file"
+          } > "$notes_file"
+
+          gh release edit "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "AgentActivity $RELEASE_TAG" \
+            --notes-file "$notes_file"
+
+      - name: Show updated release
+        run: |
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json name,tagName,url,isDraft,isPrerelease

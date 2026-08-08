@@ -1,6 +1,38 @@
-.build
-dist
+# Swift and distribution output
+.build/
+dist/
+
+# Local release configuration and credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.p12
+*.cer
+*.provisionprofile
+*.keychain-db
+*.notary
+
+# macOS and Xcode user state
 .DS_Store
+xcuserdata/
 *.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# Local AgentActivity event and database data
+hooks/*.jsonl
+hooks/*.jsonl.*
+cursor.jsonl
+cursor.jsonl.*
+claude.jsonl
+claude.jsonl.*
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Local work orchestration
 .worktrees/
 .superpowers/
