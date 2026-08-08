@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FIXTURE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/agentactivity-github-release-test.XXXXXX")"
+trap 'rm -rf "$FIXTURE_ROOT"' EXIT
+
+mkdir -p "$FIXTURE_ROOT/script/lib" "$FIXTURE_ROOT/fake-bin" "$FIXTURE_ROOT/dist"
+cp "$SCRIPT_DIR/release_github.sh" "$FIXTURE_ROOT/script/release_github.sh"
+cp "$SCRIPT_DIR/lib/common.sh" "$FIXTURE_ROOT/script/lib/common.sh"
+cp "$SCRIPT_DIR/lib/signing.sh" "$FIXTURE_ROOT/script/lib/signing.sh"
+
+cat > "$FIXTURE_ROOT/fake-bin/bash" <<'FAKE_BASH'
+#!/bin/bash
+exit 0
+FAKE_BASH
+
+cat > "$FIXTURE_ROOT/fake-bin/swift" <<'FAKE_SWIFT'
+#!/bin/bash
+exit 0
+FAKE_SWIFT
+
+cat > "$FIXTURE_ROOT/script/build_distribution.sh" <<'FAKE_BUILD'
+#!/bin/bash
+exit 0
+FAKE_BUILD
+
+cat > "$FIXTURE_ROOT/script/verify_distribution.sh" <<'FAKE_VERIFY'
+#!/bin/bash
+exit 0
+FAKE_VERIFY
+
+cat > "$FIXTURE_ROOT/fake-bin/git" <<'FAKE_GIT'
+#!/bin/bash
+set -u
+if [[ "${1:-}" == -C ]]; then
+  shift 2
+fi
+case "${1:-} ${2:-} ${3:-}" in
+  "branch --show-current ") printf 'main\n' ;;
+  "status --porcelain ") ;;
+  "rev-list --count HEAD") printf '42\n' ;;
+  "rev-list -n 1")
+    [[ -n "${LOCAL_TAG_COMMIT:-}" ]] || exit 128
+    printf '%s\n' "$LOCAL_TAG_COMMIT"
+    ;;
+  "rev-parse HEAD ") printf '%s\n' "$RELEASE_COMMIT" ;;
+  "rev-parse -q --verify")
+    [[ -n "${LOCAL_TAG_COMMIT:-}" ]] || exit 1
+    printf '%s\n' "$LOCAL_TAG_COMMIT"
+    ;;
+  "tag -l "*)
+    [[ -n "${LOCAL_TAG_COMMIT:-}" ]] && printf 'v0.1.0\n'
+    ;;
+  "tag -a "*) printf 'git-tag %s\n' "$*" >> "$FIXTURE_MUTATION_LOG" ;;
+  "push origin "*) printf 'git-push %s\n' "$*" >> "$FIXTURE_MUTATION_LOG" ;;
+  "ls-remote --tags origin")
+    if [[ -n "${REMOTE_TAG_COMMIT:-}" ]]; then
+      printf 'tag-object\trefs/tags/v0.1.0\n'
+      printf '%s\trefs/tags/v0.1.0^{}\n' "$REMOTE_TAG_COMMIT"
+    fi
+    ;;
+  *)
+    printf 'unexpected fake git invocation: %s\n' "$*" >&2
+    exit 90
+    ;;
+esac
+FAKE_GIT
+
+cat > "$FIXTURE_ROOT/fake-bin/gh" <<'FAKE_GH'
+#!/bin/bash
+set -u
+[[ "${GH_UNAVAILABLE:-0}" == 0 ]] || exit 92
+case "${1:-} ${2:-}" in
+  "auth status") exit 0 ;;
+  "repo view")
+    case "$*" in
+      *'.nameWithOwner'*) printf 'fixture/private-repo\n' ;;
+      *'.visibility'*) printf '%s\n' "${REPOSITORY_VISIBILITY:-PRIVATE}" ;;
+      *) printf 'fixture/private-repo\n' ;;
+    esac
+    ;;
+  "release view") [[ "${RELEASE_EXISTS:-0}" == 1 ]] ;;
+  "release create") printf 'gh-release-create %s\n' "$*" >> "$FIXTURE_MUTATION_LOG" ;;
+  "release edit") printf 'gh-release-edit %s\n' "$*" >> "$FIXTURE_MUTATION_LOG" ;;
+  "release upload") printf 'gh-release-upload %s\n' "$*" >> "$FIXTURE_MUTATION_LOG" ;;
+  *)
+    printf 'unexpected fake gh invocation: %s\n' "$*" >&2
+    exit 91
+    ;;
+esac
+FAKE_GH
+
+chmod +x "$FIXTURE_ROOT/fake-bin"/* "$FIXTURE_ROOT/script"/*.sh
+
+failures=0
+LAST_STATUS=0
+LAST_OUTPUT=""
+MUTATION_LOG="$FIXTURE_ROOT/mutations.log"
+RELEASE_COMMIT=1111111111111111111111111111111111111111
+
+fail() {
+  printf 'FAIL: %s\n' "$*" >&2
+  failures=$((failures + 1))
+}
+
+write_release_env() {
+  printf '%s\n' \
+    'SIGNING_IDENTITY=Developer\ ID\ Application:\ Fixture\ \(TEAMID\)' \
+    'NOTARY_PROFILE=AgentActivity-Notary' > "$FIXTURE_ROOT/.env"
+  chmod 600 "$FIXTURE_ROOT/.env"
+}
+
+run_release() {
+  local dry_run="$1"
+  : > "$MUTATION_LOG"
+  set +e
+  LAST_OUTPUT="$(env \
+    PATH="$FIXTURE_ROOT/fake-bin:/usr/bin:/bin" \
+    FIXTURE_MUTATION_LOG="$MUTATION_LOG" \
+    RELEASE_COMMIT="$RELEASE_COMMIT" \
+    REPOSITORY_VISIBILITY="${REPOSITORY_VISIBILITY:-PRIVATE}" \
+    LOCAL_TAG_COMMIT="${LOCAL_TAG_COMMIT:-}" \
+    REMOTE_TAG_COMMIT="${REMOTE_TAG_COMMIT:-}" \
+    RELEASE_EXISTS="${RELEASE_EXISTS:-0}" \
+    GH_UNAVAILABLE="${GH_UNAVAILABLE:-0}" \
+    /bin/bash "$FIXTURE_ROOT/script/release_github.sh" 0.1.0 "$dry_run" 2>&1)"
+  LAST_STATUS=$?
+  set -e
+}
+
+assert_no_mutation() {
+  [[ ! -s "$MUTATION_LOG" ]] || fail "$1 mutated release state: $(tr '\n' ' ' < "$MUTATION_LOG")"
+}
+
+# Dry-run must not parse, validate, or execute .env before choosing isolation.
+malicious_marker="$FIXTURE_ROOT/dry-run-env-executed"
+printf 'touch %s\n' "$malicious_marker" > "$FIXTURE_ROOT/.env"
+chmod 600 "$FIXTURE_ROOT/.env"
+LOCAL_TAG_COMMIT="" REMOTE_TAG_COMMIT="" RELEASE_EXISTS=0 REPOSITORY_VISIBILITY=PUBLIC GH_UNAVAILABLE=1 run_release 1
+[[ "$LAST_STATUS" == 0 ]] || fail "dry-run failed without a remote repository: $LAST_OUTPUT"
+[[ ! -e "$malicious_marker" ]] || fail "dry-run executed malicious .env"
+assert_no_mutation "dry-run"
+
+# Public repository visibility must fail before tag, push, or release mutation.
+write_release_env
+LOCAL_TAG_COMMIT="" REMOTE_TAG_COMMIT="" RELEASE_EXISTS=0 REPOSITORY_VISIBILITY=PUBLIC GH_UNAVAILABLE=0 run_release 0
+[[ "$LAST_STATUS" != 0 ]] || fail "public repository release unexpectedly succeeded"
+assert_no_mutation "public repository rejection"
+
+# A matching verified tag is resumable and must not be recreated or repushed.
+write_release_env
+LOCAL_TAG_COMMIT="$RELEASE_COMMIT" REMOTE_TAG_COMMIT="$RELEASE_COMMIT" RELEASE_EXISTS=0 REPOSITORY_VISIBILITY=PRIVATE run_release 0
+[[ "$LAST_STATUS" == 0 ]] || fail "matching existing tag did not resume: $LAST_OUTPUT"
+grep -q '^gh-release-create ' "$MUTATION_LOG" || fail "resumed release did not create missing GitHub Release"
+if grep -Eq '^(git-tag|git-push) ' "$MUTATION_LOG"; then
+  fail "matching existing tag was recreated or repushed"
+fi
+
+# A mismatched remote tag must fail before any mutation.
+write_release_env
+LOCAL_TAG_COMMIT="" REMOTE_TAG_COMMIT=2222222222222222222222222222222222222222 RELEASE_EXISTS=0 REPOSITORY_VISIBILITY=PRIVATE run_release 0
+[[ "$LAST_STATUS" != 0 ]] || fail "mismatched remote tag unexpectedly succeeded"
+assert_no_mutation "mismatched remote tag"
+
+# An existing release must be updated and receive clobbering uploads.
+write_release_env
+LOCAL_TAG_COMMIT="$RELEASE_COMMIT" REMOTE_TAG_COMMIT="$RELEASE_COMMIT" RELEASE_EXISTS=1 REPOSITORY_VISIBILITY=PRIVATE run_release 0
+[[ "$LAST_STATUS" == 0 ]] || fail "existing GitHub Release did not resume: $LAST_OUTPUT"
+grep -q '^gh-release-edit ' "$MUTATION_LOG" || fail "existing GitHub Release was not updated"
+grep -q '^gh-release-upload .*--clobber' "$MUTATION_LOG" || fail "existing GitHub Release assets were not uploaded with --clobber"
+if grep -q '^gh-release-create ' "$MUTATION_LOG"; then
+  fail "existing GitHub Release was recreated"
+fi
+
+if ((failures > 0)); then
+  printf '%d GitHub release fixture(s) failed\n' "$failures" >&2
+  exit 1
+fi
+
+printf 'GitHub release flow fixtures passed\n'

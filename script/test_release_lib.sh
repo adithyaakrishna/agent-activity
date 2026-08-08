@@ -77,6 +77,43 @@ assert_artifact_stays_within "$fixture_output" 1.2.3-beta.1
 assert_artifact_rejected "$fixture_output" '../escaped'
 assert_artifact_rejected "$fixture_output" '1.0.0/../../escaped'
 
+good_env="$fixture_output/good.env"
+printf '%s\n' \
+  'SIGNING_IDENTITY=Developer\ ID\ Application:\ Fixture\ \(TEAMID\)' \
+  'NOTARY_PROFILE=AgentActivity-Notary' > "$good_env"
+chmod 600 "$good_env"
+SIGNING_IDENTITY=""
+NOTARY_PROFILE=""
+if load_optional_env "$good_env"; then
+  assert_equal "$SIGNING_IDENTITY" 'Developer ID Application: Fixture (TEAMID)'
+  assert_equal "$NOTARY_PROFILE" 'AgentActivity-Notary'
+else
+  fail "expected secure whitelisted environment file to load"
+fi
+
+malicious_env="$fixture_output/malicious.env"
+malicious_marker="$fixture_output/executed"
+printf 'SIGNING_IDENTITY=Developer ID Application: $(touch %s)\n' "$malicious_marker" > "$malicious_env"
+chmod 600 "$malicious_env"
+if (load_optional_env "$malicious_env" >/dev/null 2>&1); then
+  fail "expected executable environment value to be rejected"
+fi
+[[ ! -e "$malicious_marker" ]] || fail "environment parser executed shell code"
+
+insecure_env="$fixture_output/insecure.env"
+printf '%s\n' 'NOTARY_PROFILE=AgentActivity-Notary' > "$insecure_env"
+chmod 644 "$insecure_env"
+if (load_optional_env "$insecure_env" >/dev/null 2>&1); then
+  fail "expected group/world-readable environment file to be rejected"
+fi
+
+unknown_env="$fixture_output/unknown.env"
+printf '%s\n' 'UNKNOWN_RELEASE_SETTING=value' > "$unknown_env"
+chmod 600 "$unknown_env"
+if (load_optional_env "$unknown_env" >/dev/null 2>&1); then
+  fail "expected unknown environment assignment to be rejected"
+fi
+
 if ((failures > 0)); then
   printf '%d release library fixture(s) failed\n' "$failures" >&2
   exit 1
