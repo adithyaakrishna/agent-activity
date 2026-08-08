@@ -1,5 +1,6 @@
 import Foundation
 import AgentActivityHookCore
+import Darwin
 
 @main
 enum AgentActivityHookMain {
@@ -9,9 +10,9 @@ enum AgentActivityHookMain {
         if commandArguments.count == 2, commandArguments[0] == "capture" {
             capture(provider: commandArguments[1])
         } else if commandArguments == ["install"] {
-            configure(installing: true)
+            if !configure(installing: true) { Darwin.exit(EXIT_FAILURE) }
         } else if commandArguments == ["uninstall"] {
-            configure(installing: false)
+            if !configure(installing: false) { Darwin.exit(EXIT_FAILURE) }
         }
     }
 
@@ -27,7 +28,7 @@ enum AgentActivityHookMain {
             ) else {
                 return
             }
-            let directory = FileManager.default.homeDirectoryForCurrentUser
+            let directory = homeDirectory()
                 .appendingPathComponent("Library/Application Support/AgentActivity/hooks", isDirectory: true)
             try HookRecordStore().append(record, provider: provider, directory: directory)
         } catch {
@@ -35,10 +36,10 @@ enum AgentActivityHookMain {
         }
     }
 
-    private static func configure(installing: Bool) {
+    private static func configure(installing: Bool) -> Bool {
         do {
             let manager = HookConfigurationManager()
-            let home = FileManager.default.homeDirectoryForCurrentUser
+            let home = homeDirectory()
             if installing {
                 try manager.install(helperSource: try executableURL(), homeDirectory: home, timestamp: Date())
                 print("Installed AgentActivity hooks.")
@@ -46,9 +47,19 @@ enum AgentActivityHookMain {
                 try manager.uninstall(homeDirectory: home, timestamp: Date())
                 print("Removed AgentActivity hooks.")
             }
+            return true
         } catch {
             FileHandle.standardError.write(Data("AgentActivity hook configuration failed.\n".utf8))
+            return false
         }
+    }
+
+    private static func homeDirectory() -> URL {
+        if let override = ProcessInfo.processInfo.environment["AGENT_ACTIVITY_HOME_DIRECTORY_OVERRIDE"],
+           !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
     }
 
     private static func executableURL() throws -> URL {
