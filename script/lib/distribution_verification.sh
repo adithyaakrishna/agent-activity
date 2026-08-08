@@ -93,16 +93,23 @@ verify_signature_flags() {
 attach_dmg_readonly() {
   local image="$1"
   local mount_point="$2"
-  local targets remaining target cleanup_failed=0
+  local before_snapshot after_snapshot targets remaining_snapshot remaining
+  local target cleanup_failed=0
+
+  if ! before_snapshot="$(dmg_attachment_snapshot "$image" "$mount_point")"; then
+    printf 'error: could not snapshot DMG state before attach\n' >&2
+    return 2
+  fi
 
   if hdiutil attach -readonly -nobrowse -mountpoint "$mount_point" "$image" >/dev/null; then
     return 0
   fi
 
-  if ! targets="$(partial_dmg_detach_targets "$image" "$mount_point")"; then
+  if ! after_snapshot="$(dmg_attachment_snapshot "$image" "$mount_point")"; then
     printf 'error: could not inspect partial DMG state after failed attach\n' >&2
     return 2
   fi
+  targets="$(new_dmg_detach_targets "$before_snapshot" "$after_snapshot")"
   while IFS= read -r target; do
     [[ -n "$target" ]] || continue
     if hdiutil detach "$target" >/dev/null 2>&1; then
@@ -115,10 +122,11 @@ attach_dmg_readonly() {
     cleanup_failed=1
   done <<< "$targets"
 
-  if ! remaining="$(partial_dmg_detach_targets "$image" "$mount_point")"; then
+  if ! remaining_snapshot="$(dmg_attachment_snapshot "$image" "$mount_point")"; then
     printf 'error: could not verify partial DMG cleanup after failed attach\n' >&2
     return 2
   fi
+  remaining="$(new_dmg_detach_targets "$before_snapshot" "$remaining_snapshot")"
   if [[ -n "$remaining" ]]; then
     printf 'error: could not detach partially attached DMG; residual target %s remains\n' \
       "$(printf '%s\n' "$remaining" | head -n 1)" >&2
@@ -128,11 +136,11 @@ attach_dmg_readonly() {
   return 1
 }
 
-partial_dmg_detach_targets() {
+dmg_attachment_snapshot() {
   local image="$1"
   local requested_mount="$2"
   local info image_count image_index image_path entity_count entity_index
-  local device mount fallback_device mounted_device exact_target image_matches
+  local device mount fallback_target mounted_target exact_target image_matches
 
   info="$(hdiutil info -plist 2>/dev/null)" || return 2
   image_count="$(printf '%s' "$info" | plutil -extract images raw -o - -- - 2>/dev/null)" || \
@@ -153,8 +161,8 @@ partial_dmg_detach_targets() {
 
     image_matches=0
     [[ "$image_path" == "$image" ]] && image_matches=1
-    fallback_device=""
-    mounted_device=""
+    fallback_target=""
+    mounted_target=""
     exact_target=""
     entity_index=0
     while ((entity_index < entity_count)); do
@@ -168,8 +176,9 @@ partial_dmg_detach_targets() {
           | plutil -extract "images.$image_index.system-entities.$entity_index.mount-point" \
             raw -o - -- - 2>/dev/null || true
       )"
-      [[ -n "$device" ]] && fallback_device="$device"
-      [[ -n "$mount" && -n "$device" ]] && mounted_device="$device"
+      [[ -n "$device" ]] && fallback_target="$device"
+      [[ -z "$device" && -n "$mount" ]] && fallback_target="$mount"
+      [[ -n "$mount" ]] && mounted_target="${device:-$mount}"
       if [[ "$mount" == "$requested_mount" ]]; then
         image_matches=1
         exact_target="${device:-$mount}"
@@ -179,15 +188,40 @@ partial_dmg_detach_targets() {
 
     if ((image_matches == 1)); then
       if [[ -n "$exact_target" ]]; then
-        printf '%s\n' "$exact_target"
-      elif [[ -n "$mounted_device" ]]; then
-        printf '%s\n' "$mounted_device"
-      elif [[ -n "$fallback_device" ]]; then
-        printf '%s\n' "$fallback_device"
+        printf '%s\t1\n' "$exact_target"
+      elif [[ -n "$mounted_target" ]]; then
+        printf '%s\t0\n' "$mounted_target"
+      elif [[ -n "$fallback_target" ]]; then
+        printf '%s\t0\n' "$fallback_target"
       else
         return 2
       fi
     fi
     image_index=$((image_index + 1))
   done
+}
+
+new_dmg_detach_targets() {
+  local before_snapshot="$1"
+  local after_snapshot="$2"
+  local target exact_mount
+
+  while IFS=$'\t' read -r target exact_mount; do
+    [[ -n "$target" ]] || continue
+    if [[ "$exact_mount" == 1 ]] || ! dmg_snapshot_has_target "$before_snapshot" "$target"; then
+      printf '%s\n' "$target"
+    fi
+  done <<< "$after_snapshot"
+}
+
+dmg_snapshot_has_target() {
+  local snapshot="$1"
+  local expected_target="$2"
+  local target exact_mount
+
+  while IFS=$'\t' read -r target exact_mount; do
+    [[ -n "$target" ]] || continue
+    [[ "$target" == "$expected_target" ]] && return 0
+  done <<< "$snapshot"
+  return 1
 }

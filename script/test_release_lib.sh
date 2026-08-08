@@ -191,34 +191,62 @@ fake_hdiutil_log="$fixture_output/hdiutil.log"
 fake_hdiutil_state="$fixture_output/hdiutil.state"
 cat > "$fake_hdiutil_dir/hdiutil" <<'FAKE_HDIUTIL'
 #!/usr/bin/env bash
-printf '%s\n' "$1" >> "$FAKE_HDIUTIL_LOG"
+set -euo pipefail
+
+printf '%s\n' "$*" >> "$FAKE_HDIUTIL_LOG"
 case "$1" in
   attach)
-    printf 'attached\n' > "$FAKE_HDIUTIL_STATE"
+    if ! grep -qx new "$FAKE_HDIUTIL_STATE" 2>/dev/null; then
+      printf 'new\n' >> "$FAKE_HDIUTIL_STATE"
+    fi
     exit 23
     ;;
   info)
-    if [[ -s "$FAKE_HDIUTIL_STATE" ]]; then
-      cat <<PLIST
+    cat <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict><key>images</key><array><dict>
+<plist version="1.0"><dict><key>images</key><array>
+PLIST
+    if grep -qx existing "$FAKE_HDIUTIL_STATE" 2>/dev/null; then
+      cat <<PLIST
+<dict>
+<key>image-path</key><string>$FAKE_HDIUTIL_IMAGE</string>
+<key>system-entities</key><array><dict>
+<key>dev-entry</key><string>/dev/disk88</string>
+<key>mount-point</key><string>$FAKE_HDIUTIL_EXISTING_MOUNT</string>
+</dict></array></dict>
+PLIST
+    fi
+    if grep -qx new "$FAKE_HDIUTIL_STATE" 2>/dev/null; then
+      cat <<PLIST
+<dict>
 <key>image-path</key><string>$FAKE_HDIUTIL_IMAGE</string>
 <key>system-entities</key><array><dict>
 <key>dev-entry</key><string>/dev/disk99</string>
-<key>mount-point</key><string>$FAKE_HDIUTIL_MOUNT</string>
-</dict></array></dict></array></dict></plist>
+</dict></array></dict>
 PLIST
-    else
-      printf '%s\n' '<?xml version="1.0"?><plist version="1.0"><dict><key>images</key><array/></dict></plist>'
     fi
+    printf '%s\n' '</array></dict></plist>'
     ;;
   detach)
-    if [[ "${FAKE_HDIUTIL_DETACH_FAILURE:-0}" == 1 ]]; then
-      exit 24
+    target="${2:-}"
+    if [[ "$target" == -force ]]; then
+      target="${3:-}"
     fi
-    [[ "${2:-}" == /dev/disk99 || "${3:-}" == /dev/disk99 ]] || exit 25
-    : > "$FAKE_HDIUTIL_STATE"
+    case "$target" in
+      /dev/disk88)
+        grep -vx existing "$FAKE_HDIUTIL_STATE" > "$FAKE_HDIUTIL_STATE.next" || true
+        mv "$FAKE_HDIUTIL_STATE.next" "$FAKE_HDIUTIL_STATE"
+        ;;
+      /dev/disk99)
+        if [[ "${FAKE_HDIUTIL_DETACH_FAILURE:-0}" == 1 ]]; then
+          exit 24
+        fi
+        grep -vx new "$FAKE_HDIUTIL_STATE" > "$FAKE_HDIUTIL_STATE.next" || true
+        mv "$FAKE_HDIUTIL_STATE.next" "$FAKE_HDIUTIL_STATE"
+        ;;
+      *) exit 25 ;;
+    esac
     ;;
   *) exit 26 ;;
 esac
@@ -226,20 +254,30 @@ FAKE_HDIUTIL
 chmod 755 "$fake_hdiutil_dir/hdiutil"
 partial_image="$fixture_output/partial.dmg"
 partial_mount="$fixture_output/partial-mount"
+existing_mount="$fixture_output/pre-existing-mount"
+printf 'existing\n' > "$fake_hdiutil_state"
 if (
   export PATH="$fake_hdiutil_dir:$PATH"
   export FAKE_HDIUTIL_LOG="$fake_hdiutil_log"
   export FAKE_HDIUTIL_STATE="$fake_hdiutil_state"
   export FAKE_HDIUTIL_IMAGE="$partial_image"
   export FAKE_HDIUTIL_MOUNT="$partial_mount"
+  export FAKE_HDIUTIL_EXISTING_MOUNT="$existing_mount"
   attach_dmg_readonly "$partial_image" "$partial_mount"
 ); then
   fail "partially mounted DMG fixture unexpectedly succeeded"
 fi
-[[ ! -s "$fake_hdiutil_state" ]] || fail "failed attach left simulated DMG state attached"
+grep -qx existing "$fake_hdiutil_state" || \
+  fail "failed attach detached the pre-existing same-image mount"
+if grep -qx new "$fake_hdiutil_state"; then
+  fail "failed attach left the newly introduced device attached"
+fi
+if grep -q '^detach .*disk88' "$fake_hdiutil_log"; then
+  fail "failed attach attempted to detach the pre-existing device"
+fi
 
 : > "$fake_hdiutil_log"
-: > "$fake_hdiutil_state"
+printf 'existing\n' > "$fake_hdiutil_state"
 set +e
 detach_failure_output="$(
   {
@@ -248,6 +286,7 @@ detach_failure_output="$(
     export FAKE_HDIUTIL_STATE="$fake_hdiutil_state"
     export FAKE_HDIUTIL_IMAGE="$partial_image"
     export FAKE_HDIUTIL_MOUNT="$partial_mount"
+    export FAKE_HDIUTIL_EXISTING_MOUNT="$existing_mount"
     export FAKE_HDIUTIL_DETACH_FAILURE=1
     attach_dmg_readonly "$partial_image" "$partial_mount"
   } 2>&1
@@ -256,7 +295,13 @@ detach_failure_status=$?
 set -e
 [[ "$detach_failure_status" == 2 ]] || \
   fail "detach cleanup failure returned $detach_failure_status instead of 2"
-[[ -s "$fake_hdiutil_state" ]] || fail "detach-failure fixture did not retain simulated state"
+grep -qx existing "$fake_hdiutil_state" || \
+  fail "detach cleanup failure detached the pre-existing same-image mount"
+grep -qx new "$fake_hdiutil_state" || \
+  fail "detach-failure fixture did not retain the new simulated device"
+if grep -q '^detach .*disk88' "$fake_hdiutil_log"; then
+  fail "detach cleanup failure attempted to detach the pre-existing device"
+fi
 printf '%s\n' "$detach_failure_output" | grep -q 'could not detach partially attached DMG' || \
   fail "detach cleanup failure was not surfaced"
 
