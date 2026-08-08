@@ -131,7 +131,6 @@ private struct HeatmapCell: View {
           ActivityDayDetail(source: source, day: day)
         }
         .accessibilityLabel(day.accessibilitySummary)
-        .help(day.label)
       } else {
         Color.clear.frame(width: 7, height: 7)
       }
