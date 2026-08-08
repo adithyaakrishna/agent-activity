@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/distribution_verification.sh
+source "$SCRIPT_DIR/lib/distribution_verification.sh"
 
 VERSION="${VERSION:-}"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/dist}"
@@ -14,7 +16,7 @@ validate_version "$VERSION" || die "VERSION must be a semantic version"
 [[ "$REQUIRE_NOTARIZATION" == 0 || "$REQUIRE_NOTARIZATION" == 1 ]] || \
   die "REQUIRE_NOTARIZATION must be 0 or 1"
 
-for command in plutil lipo codesign hdiutil ditto shasum; do
+for command in plutil lipo codesign hdiutil ditto shasum /usr/libexec/PlistBuddy; do
   require_command "$command"
 done
 
@@ -25,8 +27,8 @@ DMG_PATH="$OUTPUT_DIR/$BASENAME.dmg"
 [[ -f "$ZIP_PATH" && -f "$DMG_PATH" ]] || die "distribution artifacts are missing"
 [[ -f "$ZIP_PATH.sha256" && -f "$DMG_PATH.sha256" ]] || die "checksum files are missing"
 
-(cd "$OUTPUT_DIR" && shasum -a 256 -c "$(basename "$ZIP_PATH.sha256")")
-(cd "$OUTPUT_DIR" && shasum -a 256 -c "$(basename "$DMG_PATH.sha256")")
+verify_checksum_manifest "$ZIP_PATH.sha256" "$ZIP_PATH"
+verify_checksum_manifest "$DMG_PATH.sha256" "$DMG_PATH"
 
 VERIFY_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/agentactivity-verify.XXXXXX")"
 MOUNT_POINT="$VERIFY_ROOT/mount"
@@ -52,19 +54,21 @@ verify_app() {
   local helper="$app/Contents/Helpers/AgentActivityHook"
   local icon="$app/Contents/Resources/AgentActivity.icns"
 
-  plutil -lint "$plist"
-  [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" == "$VERSION" ]] || \
-    die "bundle version does not match $VERSION"
-  [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$plist")" == AgentActivity ]] || \
-    die "bundle icon name is not AgentActivity"
-  [[ -f "$main" && -f "$helper" && -f "$icon" ]] || die "bundle contents are incomplete"
+  verify_bundle_metadata "$plist" "$VERSION"
+  verify_executable_file "$main" "main app executable"
+  verify_executable_file "$helper" "bundled hook helper"
+  [[ -f "$icon" ]] || die "bundle icon is missing"
   lipo "$main" -verify_arch arm64 x86_64
   lipo "$helper" -verify_arch arm64 x86_64
+  codesign --verify --strict "$helper"
+  codesign --verify --strict "$app"
   codesign --verify --deep --strict "$app"
+  verify_signature_flags "$helper" "$REQUIRE_NOTARIZATION"
+  verify_signature_flags "$app" "$REQUIRE_NOTARIZATION"
 }
 
 verify_app "$APP_BUNDLE"
-hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_POINT" "$DMG_PATH" >/dev/null
+attach_dmg_readonly "$DMG_PATH" "$MOUNT_POINT" || die "could not mount distribution DMG"
 mounted=1
 [[ -L "$MOUNT_POINT/Applications" ]] || die "DMG is missing Applications symlink"
 verify_app "$MOUNT_POINT/AgentActivity.app"
@@ -72,7 +76,6 @@ verify_app "$MOUNT_POINT/AgentActivity.app"
 if [[ "$REQUIRE_NOTARIZATION" == 1 ]]; then
   require_command spctl
   require_command xcrun
-  codesign -d --verbose=4 "$APP_BUNDLE"
   spctl --assess --type execute --verbose=4 "$APP_BUNDLE"
   xcrun stapler validate "$APP_BUNDLE"
   xcrun stapler validate "$DMG_PATH"

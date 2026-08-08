@@ -3,6 +3,8 @@
 Date: 2026-08-08
 Status: Approved design, pending implementation plan
 
+> **Implementation status (2026-08-08):** The dated implementation note at the end of this document supersedes the GitHub artifact-attestation and private-vulnerability-reporting assumptions below while preserving them as design history.
+
 ## Purpose
 
 Turn the existing AgentActivity Swift package into a polished private GitHub repository with a repeatable macOS distribution system, an original Apple-style app icon, portable Cursor and Claude hooks, and documentation suitable for installing, developing, and releasing the app.
@@ -190,3 +192,7 @@ The work is complete when:
 - Cursor and Claude hooks install portably and preserve unrelated user settings.
 - The README accurately documents installation, privacy, data accuracy, development, and release operations.
 - No secret, personal absolute path, prompt content, hook log, or machine-specific build artifact is committed.
+
+## Implementation note — 2026-08-08
+
+Two GitHub features in the approved design are not available to this private repository under a personal GitHub account. The implementation therefore does not claim GitHub artifact attestations: signed/notarized release artifacts retain adjacent SHA-256 files, and the GitHub Actions fallback adds deterministic human-readable build provenance metadata. This metadata is not described as a cryptographic attestation. GitHub private vulnerability reporting is likewise replaced by the monitored maintainer email documented in `SECURITY.md`. These are approved platform-compatibility deviations; the original design text above remains as the historical decision record.

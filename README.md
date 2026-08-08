@@ -15,9 +15,6 @@
 
 AgentActivity turns a year of coding-agent work into a compact calendar heatmap. It runs as a menu-bar-only app with no Dock icon or conventional window. Click the grid in the menu bar to compare sources, inspect a day, refresh the current source, or grant access to repository folders used for historical commit correlation.
 
-> [!WARNING]
-> Until the release integration removes seeded demo activity, this development build may show deterministic preview data before a live source refresh succeeds. Treat that preview only as interface scaffolding, never as recorded activity.
-
 ## Activity sources and accuracy
 
 AgentActivity has five source tabs:
@@ -30,7 +27,7 @@ AgentActivity has five source tabs:
 | **GitHub** | The authenticated viewer's GraphQL contribution calendar | GitHub uses the authenticated contribution calendar, so daily contribution totals are exact for the authenticated account. Daily contribution types are unavailable. |
 | **Others** | Reserved for additional providers and manual imports | No live provider import is implemented; provider-specific metrics are unavailable. |
 
-Commit association remains derived. AgentActivity matches a repository and a session time window unless a provider hook records a specific Git HEAD. A displayed association is useful correlation, not definitive proof that an agent authored a commit. Active time and action counts are also derived from the observed session lifecycle. The seeded preview warning above applies until a live refresh replaces that development-only data.
+Commit association remains derived. AgentActivity matches a repository and a session time window unless a provider hook records a specific Git HEAD. A displayed association is useful correlation, not definitive proof that an agent authored a commit. Active time and action counts are also derived from the observed session lifecycle. Sources begin in a loading or unavailable state with an empty heatmap; failed refreshes never substitute preview activity. Deterministic sample data is restricted to tests and SwiftUI previews.
 
 The detailed official-source analysis is in [Docs/activity-data-sources.md](Docs/activity-data-sources.md).
 

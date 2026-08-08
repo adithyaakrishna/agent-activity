@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/distribution_verification.sh
+source "$SCRIPT_DIR/lib/distribution_verification.sh"
 
 failures=0
 
@@ -31,6 +33,14 @@ assert_equal() {
   local expected="$2"
   if [[ "$actual" != "$expected" ]]; then
     fail "expected '$expected', got '$actual'"
+  fi
+}
+
+assert_rejected() {
+  local label="$1"
+  shift
+  if ("$@" >/dev/null 2>&1); then
+    fail "expected rejection: $label"
   fi
 }
 
@@ -113,6 +123,75 @@ chmod 600 "$unknown_env"
 if (load_optional_env "$unknown_env" >/dev/null 2>&1); then
   fail "expected unknown environment assignment to be rejected"
 fi
+
+fixture_plist="$fixture_output/Info.plist"
+cp "$SCRIPT_DIR/../Resources/Info.plist" "$fixture_plist"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 1.2.3' "$fixture_plist"
+if ! (verify_bundle_metadata "$fixture_plist" 1.2.3 >/dev/null 2>&1); then
+  fail "expected valid bundle metadata to pass"
+fi
+
+bad_identifier_plist="$fixture_output/BadIdentifier.plist"
+cp "$fixture_plist" "$bad_identifier_plist"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier example.invalid' "$bad_identifier_plist"
+assert_rejected "malformed bundle identifier" verify_bundle_metadata "$bad_identifier_plist" 1.2.3
+
+bad_minimum_plist="$fixture_output/BadMinimum.plist"
+cp "$fixture_plist" "$bad_minimum_plist"
+/usr/libexec/PlistBuddy -c 'Set :LSMinimumSystemVersion 12.0' "$bad_minimum_plist"
+assert_rejected "malformed minimum system version" verify_bundle_metadata "$bad_minimum_plist" 1.2.3
+
+bad_ui_element_plist="$fixture_output/BadUIElement.plist"
+cp "$fixture_plist" "$bad_ui_element_plist"
+/usr/libexec/PlistBuddy -c 'Set :LSUIElement false' "$bad_ui_element_plist"
+assert_rejected "malformed menu-bar-only flag" verify_bundle_metadata "$bad_ui_element_plist" 1.2.3
+
+fixture_executable="$fixture_output/AgentActivity"
+printf '#!/bin/sh\n' > "$fixture_executable"
+chmod 644 "$fixture_executable"
+assert_rejected "non-executable bundle binary" verify_executable_file "$fixture_executable" fixture
+chmod 755 "$fixture_executable"
+if ! (verify_executable_file "$fixture_executable" fixture >/dev/null 2>&1); then
+  fail "expected executable bundle binary to pass"
+fi
+
+fixture_artifact="$fixture_output/AgentActivity-1.2.3-macos-universal.zip"
+printf 'fixture artifact\n' > "$fixture_artifact"
+sha256_file "$fixture_artifact"
+if ! (verify_checksum_manifest "$fixture_artifact.sha256" "$fixture_artifact" >/dev/null 2>&1); then
+  fail "expected exact checksum artifact filename to pass"
+fi
+fixture_hash="$(shasum -a 256 "$fixture_artifact" | awk '{ print $1 }')"
+printf '%s  %s\n' "$fixture_hash" 'AgentActivity-wrong-name.zip' > "$fixture_artifact.sha256"
+assert_rejected "checksum naming a different artifact" \
+  verify_checksum_manifest "$fixture_artifact.sha256" "$fixture_artifact"
+
+adhoc_report='CodeDirectory v=20400 size=1 flags=0x2(adhoc) hashes=1+2 location=embedded'
+runtime_report='CodeDirectory v=20500 size=1 flags=0x10000(runtime) hashes=1+2 location=embedded'
+if codesign_report_has_flag "$adhoc_report" runtime; then
+  fail "ad-hoc signature was falsely reported as hardened runtime"
+fi
+if ! codesign_report_has_flag "$runtime_report" runtime; then
+  fail "hardened-runtime signature flag was not parsed"
+fi
+
+fake_hdiutil_dir="$fixture_output/fake-hdiutil"
+mkdir -p "$fake_hdiutil_dir"
+fake_hdiutil_log="$fixture_output/hdiutil.log"
+cat > "$fake_hdiutil_dir/hdiutil" <<'FAKE_HDIUTIL'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "$FAKE_HDIUTIL_LOG"
+[[ "$1" == detach ]]
+FAKE_HDIUTIL
+chmod 755 "$fake_hdiutil_dir/hdiutil"
+if (
+  export PATH="$fake_hdiutil_dir:$PATH"
+  export FAKE_HDIUTIL_LOG="$fake_hdiutil_log"
+  attach_dmg_readonly "$fixture_output/partial.dmg" "$fixture_output/partial-mount"
+); then
+  fail "partially mounted DMG fixture unexpectedly succeeded"
+fi
+assert_equal "$(tr '\n' ' ' < "$fake_hdiutil_log")" "attach detach "
 
 if ((failures > 0)); then
   printf '%d release library fixture(s) failed\n' "$failures" >&2

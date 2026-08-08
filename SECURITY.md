@@ -6,6 +6,8 @@ Security fixes apply to the latest AgentActivity release line. Update to the new
 
 ## Report a vulnerability privately
 
+GitHub private vulnerability reporting is not available for this private repository under the maintainer's personal account. Use the monitored email channel below instead.
+
 Email the monitored maintainer address [aadithya794@gmail.com](mailto:aadithya794@gmail.com?subject=%5BAgentActivity%20security%5D) with the exact subject `[AgentActivity security]`. Include the affected version, macOS version, impact, reproduction steps, and a minimal description of the expected and observed behavior.
 
 Do not open a regular issue for a suspected vulnerability or include vulnerability details there. Do not send prompt text, transcript content, credentials, tokens, signing material, or private repository content in either an issue or the initial email. Redact sensitive paths and metadata from screenshots and logs. The maintainer will establish an appropriate private follow-up channel if additional sensitive evidence is needed.

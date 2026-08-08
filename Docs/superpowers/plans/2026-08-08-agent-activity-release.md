@@ -8,6 +8,8 @@
 
 **Tech Stack:** Swift 5.9+, SwiftUI, AppKit, Foundation, XCTest, Bash 3.2-compatible shell scripts, Swift Package Manager, `codesign`, `notarytool`, `stapler`, `hdiutil`, GitHub CLI, and GitHub Actions.
 
+> **Implementation status (2026-08-08):** The dated implementation note at the end of this plan supersedes the GitHub artifact-attestation and private-vulnerability-reporting steps below while retaining the approved plan history.
+
 ## Global Constraints
 
 - Keep AgentActivity native, menu-bar-only, and compatible with macOS 13 or later.
@@ -505,3 +507,7 @@ Confirm the repository URL, privacy, branch, latest commit, passing CI, README r
 - [ ] Hook install is idempotent; uninstall is surgical; malformed configs are never overwritten.
 - [ ] No prompt content, credential, personal absolute path, hook log, or build product is tracked.
 - [ ] README, security policy, release notes, and workflow documentation match actual commands.
+
+## Implementation note — 2026-08-08
+
+The private personal repository cannot use the originally planned GitHub artifact-attestation and private-vulnerability-reporting features. The reviewed implementation uses signed/notarized artifacts, exact adjacent SHA-256 files, and conditional deterministic build-provenance metadata instead of GitHub artifact attestations. Vulnerability reports go to the monitored maintainer email in `SECURITY.md` instead of GitHub private vulnerability reporting. The original task wording is retained above for plan history; these approved deviations govern implementation and verification.
