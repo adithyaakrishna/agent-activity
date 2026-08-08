@@ -128,6 +128,7 @@ final class ActivityDataFactoryTests: XCTestCase {
   @MainActor
   func testSelectingSourceDoesNotReplayHeatmapWhileNewSourceLoads() async {
     let loader = ControlledSourceLoader()
+    let loadedResult = makeFixtureHistoryResult()
     let store = ActivityStore(
       selectedSource: .codex,
       loadsLiveData: false,
@@ -147,8 +148,63 @@ final class ActivityDataFactoryTests: XCTestCase {
       "Normal source selection must not replay the heatmap"
     )
 
-    loader.resolve(request: 0, with: .failure(CancellationError()))
-    await waitUntil { loader.completedRequests == [0] }
+    loader.resolve(request: 0, with: .success(loadedResult))
+    await waitUntil { store.loadState == .available }
+
+    XCTAssertEqual(store.selectedSource, .cursor)
+    XCTAssertEqual(store.dataset, loadedResult.dataset)
+    XCTAssertEqual(store.summary, loadedResult.summary)
+    XCTAssertEqual(store.summary.totalCommits, 7)
+    XCTAssertEqual(
+      store.dataset.weeks.flatMap { $0 }.first(where: { $0.intensity > 0 })?.thingsWorkedOn,
+      7
+    )
+    XCTAssertEqual(
+      store.replayID,
+      originalReplayID,
+      "Applying selected-source content must not replay the heatmap"
+    )
+
+    store.select(.codex)
+    await waitUntil { loader.requestedSources == [.cursor, .codex] }
+    store.select(.cursor)
+
+    XCTAssertEqual(store.loadState, .available)
+    XCTAssertEqual(store.dataset, loadedResult.dataset)
+    XCTAssertEqual(store.replayID, originalReplayID, "Selecting cached content must stay immediate")
+
+    loader.resolve(request: 1, with: .failure(CancellationError()))
+    await waitUntil { loader.completedRequests == [0, 1] }
+  }
+
+  @MainActor
+  func testExplicitReplayChangesHeatmapIdentityExactlyOnceAcrossSuccessfulRefresh() async {
+    let loader = ControlledSourceLoader()
+    let loadedResult = makeFixtureHistoryResult()
+    let store = ActivityStore(
+      selectedSource: .codex,
+      loadsLiveData: false,
+      sourceLoader: loader.load
+    )
+    let originalReplayID = store.replayID
+
+    store.replay()
+    await waitUntil { loader.requestedSources == [.codex] }
+    let requestedReplayID = store.replayID
+
+    XCTAssertNotEqual(requestedReplayID, originalReplayID)
+    XCTAssertEqual(store.loadState, .loading)
+
+    loader.resolve(request: 0, with: .success(loadedResult))
+    await waitUntil { store.loadState == .available }
+
+    XCTAssertEqual(store.dataset, loadedResult.dataset)
+    XCTAssertEqual(store.summary, loadedResult.summary)
+    XCTAssertEqual(
+      store.replayID,
+      requestedReplayID,
+      "Completing an explicit refresh must not trigger a second heatmap replay"
+    )
   }
 
   @MainActor
@@ -206,6 +262,25 @@ final class ActivityDataFactoryTests: XCTestCase {
           && day.deletions == 0
           && day.activeMinutes == 0
       })
+  }
+
+  private func makeFixtureHistoryResult() -> ActivityHistoryResult {
+    let endDate = Date(timeIntervalSinceReferenceDate: 0)
+    let dateKey = ActivityFormatters.dateKey.string(from: endDate)
+    return ActivityHistoryBuilder.make(
+      from: [
+        dateKey: ActivityDayMetrics(
+          thingsWorkedOn: 7,
+          commits: 3,
+          tokens: 42_000,
+          agents: 2,
+          additions: 19,
+          deletions: 4,
+          activeMinutes: 55
+        )
+      ],
+      endingOn: endDate
+    )
   }
 
   @MainActor

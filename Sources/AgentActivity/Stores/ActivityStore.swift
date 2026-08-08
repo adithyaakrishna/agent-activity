@@ -11,6 +11,11 @@ enum ActivityLoadState: Equatable {
 final class ActivityStore: ObservableObject {
   typealias SourceLoader = (AgentSource) async throws -> ActivityHistoryResult
 
+  private enum RefreshIntent {
+    case updateContent
+    case replayHeatmap
+  }
+
   @Published private(set) var selectedSource: AgentSource
   @Published private(set) var dataset: ActivityDataset
   @Published private(set) var summary: ActivitySummary
@@ -57,8 +62,7 @@ final class ActivityStore: ObservableObject {
   }
 
   func replay() {
-    replayID = UUID()
-    refresh()
+    refresh(intent: .replayHeatmap)
   }
 
   func chooseRepositoryFolders() {
@@ -75,12 +79,14 @@ final class ActivityStore: ObservableObject {
     LocalGitAccess.save(panel.urls)
     cachedResults.removeAll()
     applyEmptyState()
-    replayID = UUID()
     refresh()
   }
 
-  private func refresh() {
+  private func refresh(intent: RefreshIntent = .updateContent) {
     cancelRefresh()
+    if case .replayHeatmap = intent {
+      replayID = UUID()
+    }
     guard selectedSource != .others else {
       refreshError = Self.othersUnavailableMessage
       loadState = .unavailable(Self.othersUnavailableMessage)
@@ -102,7 +108,6 @@ final class ActivityStore: ObservableObject {
         summary = result.summary
         loadState = .available
         refreshError = nil
-        replayID = UUID()
         finishRefresh(refreshID)
       } catch is CancellationError {
         guard let self, self.isCurrentRefresh(refreshID, source: requestedSource) else { return }
