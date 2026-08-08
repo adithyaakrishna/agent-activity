@@ -12,10 +12,13 @@ public struct HookRecordStore {
     }
 
     public func append(_ record: [String: Any], provider: HookProvider, directory: URL) throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-
         var line = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
         line.append(0x0A)
+        guard line.count <= maxBytes else {
+            throw POSIXError(.EFBIG)
+        }
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         let lockURL = directory.appendingPathComponent(".\(provider.rawValue).lock")
         let lockDescriptor = try openFile(at: lockURL, flags: O_RDWR | O_CREAT)

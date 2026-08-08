@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public struct GitHeadMetadata: Equatable {
@@ -20,7 +21,20 @@ public protocol GitHeadInspecting {
 }
 
 public struct GitHeadInspector: GitHeadInspecting {
-    public init() {}
+    private let commandTimeout: TimeInterval
+    private let executableURL: URL
+
+    public init() {
+        self.init(
+            commandTimeout: 2,
+            executableURL: URL(fileURLWithPath: "/usr/bin/git")
+        )
+    }
+
+    init(commandTimeout: TimeInterval, executableURL: URL) {
+        self.commandTimeout = max(0, commandTimeout)
+        self.executableURL = executableURL
+    }
 
     public func repositoryRoot(for candidateDirectory: URL) -> URL? {
         guard let output = gitOutput(arguments: ["-C", candidateDirectory.path, "rev-parse", "--show-toplevel"]) else {
@@ -60,20 +74,61 @@ public struct GitHeadInspector: GitHeadInspecting {
 
     private func gitOutput(arguments: [String]) -> String? {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.executableURL = executableURL
         process.arguments = arguments
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
 
+        let outputRead = DispatchGroup()
+        let outputLock = NSLock()
+        var outputData = Data()
+        outputRead.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            outputLock.lock()
+            outputData = data
+            outputLock.unlock()
+            outputRead.leave()
+        }
+
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
+            output.fileHandleForReading.closeFile()
             return nil
         }
 
+        let deadline = Date().addingTimeInterval(commandTimeout)
+        while process.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        guard !process.isRunning else {
+            stop(process)
+            output.fileHandleForReading.closeFile()
+            _ = outputRead.wait(timeout: .now() + 0.1)
+            return nil
+        }
+
+        process.waitUntilExit()
+        guard outputRead.wait(timeout: .now() + commandTimeout) == .success else {
+            output.fileHandleForReading.closeFile()
+            return nil
+        }
         guard process.terminationStatus == 0 else { return nil }
-        return String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        outputLock.lock()
+        defer { outputLock.unlock() }
+        return String(decoding: outputData, as: UTF8.self)
+    }
+
+    private func stop(_ process: Process) {
+        process.terminate()
+        let graceDeadline = Date().addingTimeInterval(0.1)
+        while process.isRunning, Date() < graceDeadline {
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        if process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+        }
     }
 }
